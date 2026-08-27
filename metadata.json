@@ -1,0 +1,6 @@
+{
+  "name": "Microlife BP A6",
+  "description": "Native Android App für Microlife BP A6 BT Blutdruckmessgeräte mit BLE-Sync, AFIB-Erkennung und PDF-Export im Querformat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

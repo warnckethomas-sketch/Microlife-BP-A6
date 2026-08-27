@@ -1,0 +1,124 @@
+name: Android CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - dev
+  pull_request:
+    branches:
+      - main
+      - master
+      - dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    name: Build & Test Android App
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git clone --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" .
+            git fetch origin +refs/pull/${{ github.event.number }}/merge:
+            git checkout -f FETCH_HEAD
+          else
+            git clone --depth=1 --branch="${{ github.ref_name }}" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" .
+          fi
+
+      - name: Set up JDK 17
+        run: |
+          echo "Configuring JDK 17"
+          if [ -d "$JAVA_HOME_17_X64" ]; then
+            echo "JAVA_HOME=$JAVA_HOME_17_X64" >> $GITHUB_ENV
+            echo "PATH=$JAVA_HOME_17_X64/bin:$PATH" >> $GITHUB_ENV
+          else
+            # Try fallback paths on the runner
+            found=false
+            for jvm in /usr/lib/jvm/*17* /usr/lib/jvm/*jdk-17*; do
+              if [ -d "$jvm" ]; then
+                echo "JAVA_HOME=$jvm" >> $GITHUB_ENV
+                echo "PATH=$jvm/bin:$PATH" >> $GITHUB_ENV
+                found=true
+                break
+              fi
+            done
+            if [ "$found" = "false" ]; then
+              echo "Warning: JDK 17 directory not found, relying on runner default java environment"
+            fi
+          fi
+
+      - name: Setup Gradle 9.3.1
+        run: |
+          echo "Downloading Gradle 9.3.1..."
+          wget -q https://services.gradle.org/distributions/gradle-9.3.1-bin.zip
+          unzip -q gradle-9.3.1-bin.zip
+          echo "PATH=$(pwd)/gradle-9.3.1/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Restore Debug Keystore
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            echo "Restoring debug keystore from base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            echo "debug.keystore.base64 not found, generating a brand-new debug.keystore..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      # Run unit and Robolectric tests
+      - name: Run Unit Tests
+        run: gradle testDebugUnitTest --no-configuration-cache
+
+      # Build Debug APK
+      - name: Build Debug APK
+        run: gradle assembleDebug --no-configuration-cache
+
+      # Ensure apk folder exists and copy the newly built APK over
+      - name: Copy and Rename APK
+        run: |
+          mkdir -p apk
+          rm -f apk/*.apk
+          RAW_NAME=$(jq -r '.name' metadata.json)
+          if [ -z "$RAW_NAME" ] || [ "$RAW_NAME" = "null" ]; then
+            RAW_NAME="app"
+          fi
+          # Convert spaces to underscores and filter standard filename characters
+          CLEAN_NAME=$(echo "$RAW_NAME" | sed 's/ /_/g' | tr -cd 'A-Za-z0-9_äöüÄÖÜß-')
+          cp app/build/outputs/apk/debug/app-debug.apk "apk/${CLEAN_NAME}.apk"
+
+      # Commit and Push APK back to repo if it changed, using the skip ci tag
+      - name: Commit and Push APK
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add apk/
+          if git diff --staged --quiet; then
+            echo "No changes in APK to commit"
+          else
+            git commit -m "Update automatically built APK [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      # Clean up older workflow runs to keep the actions list clean
+      - name: Clean up older workflow runs
+        if: always()
+        run: |
+          echo "Cleaning up old workflow runs..."
+          export GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          runs=$(gh run list --workflow "Android CI/CD" --json databaseId -q '.[].databaseId')
+          for run_id in $runs; do
+            if [ "$run_id" != "${{ github.run_id }}" ]; then
+              echo "Deleting old run: $run_id"
+              gh run delete "$run_id" || true
+            fi
+          done
