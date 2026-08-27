@@ -4,6 +4,12 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,6 +36,8 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
@@ -39,6 +47,7 @@ import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -90,6 +99,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private enum class SettingsAccordionSection {
+    NONE, PERSON_1, PERSON_2, OPTIONS, BACKUP, DATA
+}
+
 @Composable
 fun SettingsDialog(
     currentSettings: UserSettings,
@@ -135,6 +148,15 @@ fun SettingsDialog(
         )
     }
     var chartScaleMaxText by remember { mutableStateOf(currentSettings.chartScaleMax.toString()) }
+
+    // Collapsible accordion section state: all sections closed by default, only one open at a time
+    var openSection by remember { mutableStateOf(SettingsAccordionSection.NONE) }
+
+    val isPerson1Expanded = openSection == SettingsAccordionSection.PERSON_1
+    val isPerson2Expanded = openSection == SettingsAccordionSection.PERSON_2
+    val isOptionsExpanded = openSection == SettingsAccordionSection.OPTIONS
+    val isBackupExpanded = openSection == SettingsAccordionSection.BACKUP
+    val isDataExpanded = openSection == SettingsAccordionSection.DATA
 
     // Activity Result Launchers for Database Backup & Restore
     val openBackupDocLauncher = rememberLauncherForActivityResult(
@@ -262,25 +284,38 @@ fun SettingsDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // ================= CARD: PERSON 1 =================
+                // ================= ACCORDION 1: PERSON 1 =================
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = CleanBackground),
-                    border = BorderStroke(1.5.dp, CleanOutline),
-                    shape = RoundedCornerShape(18.dp)
+                    border = BorderStroke(1.5.dp, if (isPerson1Expanded) CleanPrimary else CleanOutline),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Collapsible Header
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    openSection = if (openSection == SettingsAccordionSection.PERSON_1) {
+                                        SettingsAccordionSection.NONE
+                                    } else {
+                                        SettingsAccordionSection.PERSON_1
+                                    }
+                                }
+                                .padding(12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(26.dp)
+                                        .size(28.dp)
                                         .clip(CircleShape)
                                         .background(CleanPrimary),
                                     contentAlignment = Alignment.Center
@@ -289,226 +324,268 @@ fun SettingsDialog(
                                         imageVector = Icons.Default.Person,
                                         contentDescription = null,
                                         tint = Color.White,
-                                        modifier = Modifier.size(15.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "PERSON 1 (Benutzer A)",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.5.sp,
-                                    color = darkTextColor
-                                )
-                            }
-
-                            Surface(
-                                color = CleanSurfaceVariant,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = "Profil 1",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleanPrimary,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = p1Name,
-                            onValueChange = { p1Name = it },
-                            label = { Text("Name Person 1", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CleanPrimary) },
-                            singleLine = true,
-                            textStyle = boldDarkInputTextStyle,
-                            colors = darkTextFieldColors,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_p1_name")
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = p1SysText,
-                                onValueChange = { p1SysText = it },
-                                label = { Text("Max. Systole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                                suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                textStyle = boldDarkInputTextStyle,
-                                colors = darkTextFieldColors,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("input_p1_sys_norm")
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            OutlinedTextField(
-                                value = p1DiaText,
-                                onValueChange = { p1DiaText = it },
-                                label = { Text("Max. Diastole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                                suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                textStyle = boldDarkInputTextStyle,
-                                colors = darkTextFieldColors,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("input_p1_dia_norm")
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Messungen pro Tag Eingabe + Schnellwahl für Person 1
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = p1MeasurementsPerDayText,
-                                onValueChange = { p1MeasurementsPerDayText = it },
-                                label = { Text("Messungen pro Tag", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                                suffix = { Text("x / Tag", color = darkTextColor, fontWeight = FontWeight.Bold) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                textStyle = boldDarkInputTextStyle,
-                                colors = darkTextFieldColors,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("input_p1_measurements_per_day")
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf(2, 3, 4).forEach { count ->
-                                    val isSelected = p1MeasurementsPerDayText.trim() == count.toString()
-                                    Surface(
-                                        onClick = { p1MeasurementsPerDayText = count.toString() },
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isSelected) CleanPrimary else CleanSurfaceVariant,
-                                        border = BorderStroke(1.dp, if (isSelected) CleanPrimary else CleanOutline)
-                                    ) {
-                                        Text(
-                                            text = "${count}x",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) Color.White else darkTextColor,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp)
-                                        )
-                                    }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = if (p1Name.isNotBlank()) "PERSON 1: $p1Name" else "PERSON 1 (Benutzer A)",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.5.sp,
+                                        color = darkTextColor
+                                    )
+                                    Text(
+                                        text = if (p1Device.isNotBlank()) "MAC: $p1Device" else "Keine MAC zugeordnet",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (p1Device.isNotBlank()) CleanPrimary else darkMutedColor
+                                    )
                                 }
                             }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    color = CleanSurfaceVariant,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Profil 1",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CleanPrimary,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = if (isPerson1Expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isPerson1Expanded) "Einklappen" else "Ausklappen",
+                                    tint = darkTextColor,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
 
-                        Text(
-                            text = "Speicher-Überwachung: Warnt bei 80 ausstehenden Messungen seit der letzten Speicherung vor Datenverlust.",
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = darkMutedColor,
-                            modifier = Modifier.padding(top = 3.dp, start = 2.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Device MAC Address Field + Scan Button
-                        OutlinedTextField(
-                            value = p1Device,
-                            onValueChange = { p1Device = it },
-                            label = { Text("Zugeordnetes BT-Gerät #1 (MAC)", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                            placeholder = { Text("z.B. AA:BB:CC:DD:EE:FF", color = darkMutedColor) },
-                            leadingIcon = { Icon(Icons.Default.Bluetooth, contentDescription = null, tint = CleanPrimary) },
-                            singleLine = true,
-                            textStyle = boldDarkInputTextStyle,
-                            colors = darkTextFieldColors,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_p1_device")
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // BLE Scanner Button for Person 1
-                        Button(
-                            onClick = {
-                                scanTargetPersonIndex = 1
-                                onStartBleScan()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .testTag("btn_scan_mac_p1"),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = CleanPrimary,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp)
+                        AnimatedVisibility(
+                            visible = isPerson1Expanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.BluetoothSearching,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "BLE Scannen & MAC für Person 1 zuordnen",
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Badge if MAC is set
-                        if (p1Device.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Surface(
-                                color = CleanNormContainer,
-                                shape = RoundedCornerShape(8.dp)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
                             ) {
+                                HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
+
+                                OutlinedTextField(
+                                    value = p1Name,
+                                    onValueChange = { p1Name = it },
+                                    label = { Text("Name Person 1", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CleanPrimary) },
+                                    singleLine = true,
+                                    textStyle = boldDarkInputTextStyle,
+                                    colors = darkTextFieldColors,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("input_p1_name")
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = p1SysText,
+                                        onValueChange = { p1SysText = it },
+                                        label = { Text("Max. Systole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                        suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        textStyle = boldDarkInputTextStyle,
+                                        colors = darkTextFieldColors,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("input_p1_sys_norm")
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    OutlinedTextField(
+                                        value = p1DiaText,
+                                        onValueChange = { p1DiaText = it },
+                                        label = { Text("Max. Diastole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                        suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        textStyle = boldDarkInputTextStyle,
+                                        colors = darkTextFieldColors,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("input_p1_dia_norm")
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Messungen pro Tag Eingabe + Schnellwahl für Person 1
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    OutlinedTextField(
+                                        value = p1MeasurementsPerDayText,
+                                        onValueChange = { p1MeasurementsPerDayText = it },
+                                        label = { Text("Messungen pro Tag", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                        suffix = { Text("x / Tag", color = darkTextColor, fontWeight = FontWeight.Bold) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        textStyle = boldDarkInputTextStyle,
+                                        colors = darkTextFieldColors,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("input_p1_measurements_per_day")
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        listOf(2, 3, 4).forEach { count ->
+                                            val isSelected = p1MeasurementsPerDayText.trim() == count.toString()
+                                            Surface(
+                                                onClick = { p1MeasurementsPerDayText = count.toString() },
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSelected) CleanPrimary else CleanSurfaceVariant,
+                                                border = BorderStroke(1.dp, if (isSelected) CleanPrimary else CleanOutline)
+                                            ) {
+                                                Text(
+                                                    text = "${count}x",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected) Color.White else darkTextColor,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "Speicher-Überwachung: Warnt bei 80 ausstehenden Messungen vor Datenverlust.",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = darkMutedColor,
+                                    modifier = Modifier.padding(top = 3.dp, start = 2.dp)
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Device MAC Address Field + Scan Button
+                                OutlinedTextField(
+                                    value = p1Device,
+                                    onValueChange = { p1Device = it },
+                                    label = { Text("Zugeordnetes BT-Gerät (MAC)", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                    placeholder = { Text("z.B. AA:BB:CC:DD:EE:FF", color = darkMutedColor) },
+                                    leadingIcon = { Icon(Icons.Default.Bluetooth, contentDescription = null, tint = CleanPrimary) },
+                                    singleLine = true,
+                                    textStyle = boldDarkInputTextStyle,
+                                    colors = darkTextFieldColors,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("input_p1_device")
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // BLE Scanner Button for Person 1 (Short & easily readable)
+                                Button(
+                                    onClick = {
+                                        scanTargetPersonIndex = 1
+                                        onStartBleScan()
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .testTag("btn_scan_mac_p1"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = CleanPrimary,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
                                     Icon(
-                                        imageVector = Icons.Default.CheckCircle,
+                                        imageVector = Icons.Default.BluetoothSearching,
                                         contentDescription = null,
-                                        tint = CleanNormText,
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "MAC $p1Device zugeordnet",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = CleanNormText
+                                        text = "BLE-Scan (Person 1)",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
+                                }
+
+                                // Badge if MAC is set
+                                if (p1Device.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Surface(
+                                        color = CleanNormContainer,
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = CleanNormText,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "MAC $p1Device zugeordnet",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CleanNormText
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // ================= CARD: PERSON 2 =================
+                // ================= ACCORDION 2: PERSON 2 =================
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = CleanBackground),
-                    border = BorderStroke(1.5.dp, CleanOutline),
-                    shape = RoundedCornerShape(18.dp)
+                    border = BorderStroke(1.5.dp, if (isPerson2Expanded) CleanOnSurfaceVariant else CleanOutline),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Collapsible Header
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    openSection = if (openSection == SettingsAccordionSection.PERSON_2) {
+                                        SettingsAccordionSection.NONE
+                                    } else {
+                                        SettingsAccordionSection.PERSON_2
+                                    }
+                                }
+                                .padding(12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(26.dp)
+                                        .size(28.dp)
                                         .clip(CircleShape)
                                         .background(CleanOnSurfaceVariant),
                                     contentAlignment = Alignment.Center
@@ -517,323 +594,260 @@ fun SettingsDialog(
                                         imageVector = Icons.Default.Person,
                                         contentDescription = null,
                                         tint = Color.White,
-                                        modifier = Modifier.size(15.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "PERSON 2 (Benutzer B)",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.5.sp,
-                                    color = darkTextColor
-                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = if (p2Name.isNotBlank()) "PERSON 2: $p2Name" else "PERSON 2 (Benutzer B)",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.5.sp,
+                                        color = darkTextColor
+                                    )
+                                    Text(
+                                        text = if (p2Device.isNotBlank()) "MAC: $p2Device" else "Keine MAC zugeordnet",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (p2Device.isNotBlank()) CleanOnSurfaceVariant else darkMutedColor
+                                    )
+                                }
                             }
 
-                            Surface(
-                                color = CleanSurfaceVariant,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = "Profil 2",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleanOnSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    color = CleanSurfaceVariant,
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Profil 2",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CleanOnSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = if (isPerson2Expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (isPerson2Expanded) "Einklappen" else "Ausklappen",
+                                    tint = darkTextColor,
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        OutlinedTextField(
-                            value = p2Name,
-                            onValueChange = { p2Name = it },
-                            label = { Text("Name Person 2", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CleanOnSurfaceVariant) },
-                            singleLine = true,
-                            textStyle = boldDarkInputTextStyle,
-                            colors = darkTextFieldColors,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_p2_name")
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedTextField(
-                                value = p2SysText,
-                                onValueChange = { p2SysText = it },
-                                label = { Text("Max. Systole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                                suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                textStyle = boldDarkInputTextStyle,
-                                colors = darkTextFieldColors,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("input_p2_sys_norm")
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            OutlinedTextField(
-                                value = p2DiaText,
-                                onValueChange = { p2DiaText = it },
-                                label = { Text("Max. Diastole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                                suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                textStyle = boldDarkInputTextStyle,
-                                colors = darkTextFieldColors,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("input_p2_dia_norm")
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Messungen pro Tag Eingabe + Schnellwahl für Person 2
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        AnimatedVisibility(
+                            visible = isPerson2Expanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
                         ) {
-                            OutlinedTextField(
-                                value = p2MeasurementsPerDayText,
-                                onValueChange = { p2MeasurementsPerDayText = it },
-                                label = { Text("Messungen pro Tag", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                                suffix = { Text("x / Tag", color = darkTextColor, fontWeight = FontWeight.Bold) },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                textStyle = boldDarkInputTextStyle,
-                                colors = darkTextFieldColors,
+                            Column(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("input_p2_measurements_per_day")
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf(2, 3, 4).forEach { count ->
-                                    val isSelected = p2MeasurementsPerDayText.trim() == count.toString()
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
+                            ) {
+                                HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
+
+                                OutlinedTextField(
+                                    value = p2Name,
+                                    onValueChange = { p2Name = it },
+                                    label = { Text("Name Person 2", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = CleanOnSurfaceVariant) },
+                                    singleLine = true,
+                                    textStyle = boldDarkInputTextStyle,
+                                    colors = darkTextFieldColors,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("input_p2_name")
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    OutlinedTextField(
+                                        value = p2SysText,
+                                        onValueChange = { p2SysText = it },
+                                        label = { Text("Max. Systole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                        suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        textStyle = boldDarkInputTextStyle,
+                                        colors = darkTextFieldColors,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("input_p2_sys_norm")
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    OutlinedTextField(
+                                        value = p2DiaText,
+                                        onValueChange = { p2DiaText = it },
+                                        label = { Text("Max. Diastole", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                        suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        textStyle = boldDarkInputTextStyle,
+                                        colors = darkTextFieldColors,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("input_p2_dia_norm")
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Messungen pro Tag Eingabe + Schnellwahl für Person 2
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = p2MeasurementsPerDayText,
+                                        onValueChange = { p2MeasurementsPerDayText = it },
+                                        label = { Text("Messungen pro Tag", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                        suffix = { Text("x / Tag", color = darkTextColor, fontWeight = FontWeight.Bold) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        textStyle = boldDarkInputTextStyle,
+                                        colors = darkTextFieldColors,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("input_p2_measurements_per_day")
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        listOf(2, 3, 4).forEach { count ->
+                                            val isSelected = p2MeasurementsPerDayText.trim() == count.toString()
+                                            Surface(
+                                                onClick = { p2MeasurementsPerDayText = count.toString() },
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSelected) CleanOnSurfaceVariant else CleanSurfaceVariant,
+                                                border = BorderStroke(1.dp, if (isSelected) CleanOnSurfaceVariant else CleanOutline)
+                                            ) {
+                                                Text(
+                                                    text = "${count}x",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected) Color.White else darkTextColor,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Text(
+                                    text = "Speicher-Überwachung: Warnt bei 80 ausstehenden Messungen vor Datenverlust.",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = darkMutedColor,
+                                    modifier = Modifier.padding(top = 3.dp, start = 2.dp)
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Device MAC Address Field + Scan Button
+                                OutlinedTextField(
+                                    value = p2Device,
+                                    onValueChange = { p2Device = it },
+                                    label = { Text("Zugeordnetes BT-Gerät (MAC)", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                    placeholder = { Text("z.B. AA:BB:CC:DD:EE:FF", color = darkMutedColor) },
+                                    leadingIcon = { Icon(Icons.Default.Bluetooth, contentDescription = null, tint = CleanOnSurfaceVariant) },
+                                    singleLine = true,
+                                    textStyle = boldDarkInputTextStyle,
+                                    colors = darkTextFieldColors,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("input_p2_device")
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // BLE Scanner Button for Person 2 (Short & easily readable)
+                                Button(
+                                    onClick = {
+                                        scanTargetPersonIndex = 2
+                                        onStartBleScan()
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .testTag("btn_scan_mac_p2"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = CleanOnSurfaceVariant,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.BluetoothSearching,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "BLE-Scan (Person 2)",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                // Badge if MAC is set
+                                if (p2Device.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     Surface(
-                                        onClick = { p2MeasurementsPerDayText = count.toString() },
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isSelected) CleanOnSurfaceVariant else CleanSurfaceVariant,
-                                        border = BorderStroke(1.dp, if (isSelected) CleanOnSurfaceVariant else CleanOutline)
+                                        color = CleanNormContainer,
+                                        shape = RoundedCornerShape(8.dp)
                                     ) {
-                                        Text(
-                                            text = "${count}x",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) Color.White else darkTextColor,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 13.dp)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = CleanNormText,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "MAC $p2Device zugeordnet",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CleanNormText
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-
-                        Text(
-                            text = "Speicher-Überwachung: Warnt bei 80 ausstehenden Messungen seit der letzten Speicherung vor Datenverlust.",
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = darkMutedColor,
-                            modifier = Modifier.padding(top = 3.dp, start = 2.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Device MAC Address Field + Scan Button
-                        OutlinedTextField(
-                            value = p2Device,
-                            onValueChange = { p2Device = it },
-                            label = { Text("Zugeordnetes BT-Gerät #2 (MAC)", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                            placeholder = { Text("z.B. AA:BB:CC:DD:EE:FF", color = darkMutedColor) },
-                            leadingIcon = { Icon(Icons.Default.Bluetooth, contentDescription = null, tint = CleanOnSurfaceVariant) },
-                            singleLine = true,
-                            textStyle = boldDarkInputTextStyle,
-                            colors = darkTextFieldColors,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("input_p2_device")
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // BLE Scanner Button for Person 2
-                        Button(
-                            onClick = {
-                                scanTargetPersonIndex = 2
-                                onStartBleScan()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .testTag("btn_scan_mac_p2"),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = CleanOnSurfaceVariant,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.BluetoothSearching,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "BLE Scannen & MAC für Person 2 zuordnen",
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Badge if MAC is set
-                        if (p2Device.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Surface(
-                                color = CleanNormContainer,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = CleanNormText,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "MAC $p2Device zugeordnet",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = CleanNormText
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = CleanOutline)
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Section 3: Microlife BLE Options
-                Text(
-                    text = "GERÄTE- & SYNCHRONISATIONS-OPTIONEN",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 11.sp,
-                    color = darkTextColor,
-                    letterSpacing = 1.2.sp
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
+                // ================= ACCORDION 3: OPTIONEN & SKALA =================
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    colors = CardDefaults.cardColors(containerColor = CleanBackground),
+                    border = BorderStroke(1.5.dp, if (isOptionsExpanded) CleanPrimary else CleanOutline),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Automatisches Speicher-Löschen",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = darkTextColor
-                        )
-                        Text(
-                            text = "Sendet nach Daten-Download MCLR-Löschbefehl an das jeweilige Gerät.",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = darkMutedColor
-                        )
-                    }
-                    Switch(
-                        checked = autoErase,
-                        onCheckedChange = { autoErase = it },
-                        modifier = Modifier.testTag("switch_auto_erase")
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Section 3b: Diagramm Skala (Maximalwert)
-                Text(
-                    text = "DIAGRAMM-SKALA (MAX. WERT)",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 11.sp,
-                    color = darkTextColor,
-                    letterSpacing = 1.2.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Legen Sie fest, bis zu welchem Wert (in mmHg) die Y-Achse des Diagramms reicht (Standard: 210, z. B. 180 für kompakte Ansicht).",
-                    fontSize = 11.sp,
-                    color = darkMutedColor,
-                    lineHeight = 15.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(180, 200, 210, 240).forEach { presetVal ->
-                        val isSel = chartScaleMaxText == presetVal.toString()
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSel) CleanPrimary else CleanSurfaceVariant,
-                            border = BorderStroke(1.dp, if (isSel) CleanPrimary else CleanOutline),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { chartScaleMaxText = presetVal.toString() }
-                        ) {
-                            Text(
-                                text = "$presetVal",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSel) Color.White else darkTextColor,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = chartScaleMaxText,
-                    onValueChange = { chartScaleMaxText = it },
-                    label = { Text("Max. Skalenwert manuell", color = darkLabelColor, fontWeight = FontWeight.Bold) },
-                    suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    textStyle = boldDarkInputTextStyle,
-                    colors = darkTextFieldColors,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("input_chart_scale_max")
-                )
-
-                if (onOpenDiagnose != null) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFF0F172A),
-                        border = BorderStroke(1.dp, Color(0xFF334155)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpenDiagnose() }
-                    ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Collapsible Header
                         Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    openSection = if (openSection == SettingsAccordionSection.OPTIONS) {
+                                        SettingsAccordionSection.NONE
+                                    } else {
+                                        SettingsAccordionSection.OPTIONS
+                                    }
+                                }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -841,224 +855,180 @@ fun SettingsDialog(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFF1E293B)),
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(CleanSurfaceVariant),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Terminal,
+                                        imageVector = Icons.Default.Tune,
                                         contentDescription = null,
-                                        tint = Color(0xFF38BDF8),
-                                        modifier = Modifier.size(20.dp)
+                                        tint = CleanPrimary,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
-                                        text = "GATT & Bluetooth Diagnose-Fenster",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = Color(0xFFF1F5F9)
+                                        text = "OPTIONEN & DIAGRAMM",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.5.sp,
+                                        color = darkTextColor
                                     )
                                     Text(
-                                        text = "Services, Eigenschaften & Rohdaten-Bytes der SN 2000717 analysieren und als .txt speichern",
+                                        text = "Speicher löschen, Skala ($chartScaleMaxText mmHg)",
                                         fontSize = 11.sp,
-                                        color = Color(0xFF94A3B8),
-                                        lineHeight = 15.sp
+                                        fontWeight = FontWeight.Medium,
+                                        color = darkMutedColor
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF0284C7)
-                            ) {
-                                Text(
-                                    text = "ÖFFNEN",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = CleanOutline)
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Section 4: Datensicherung (Backup & Restore in DB)
-                Text(
-                    text = "DATENSICHERUNG & DATENBANK",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 11.sp,
-                    color = darkTextColor,
-                    letterSpacing = 1.2.sp
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Scope Info Card
-                Surface(
-                    color = CleanSurfaceVariant,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, CleanOutline),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Storage,
-                                contentDescription = null,
-                                tint = CleanPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Umfang der Datenbanksicherung:",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = darkTextColor
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "• Alle Messwerte beider Personen (Systole, Diastole, Puls, AFIB)\n• Alle Personenprofile & individuelle Norm-Grenzwerte\n• Alle Bluetooth-Gerätezuordnungen & MAC-Adressen",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = darkTextColor,
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Auto-Backup Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Automatische Datenbanksicherung",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = darkTextColor
-                        )
-                        Text(
-                            text = "Sichert Messwerte, Profile und Bluetooth-Geräte automatisch bei jedem Sync in ein und dieselbe Datei (Blutdruck_Sicherung.db).",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = darkMutedColor,
-                            lineHeight = 15.sp
-                        )
-                    }
-                    Switch(
-                        checked = autoBackupEnabled,
-                        onCheckedChange = { autoBackupEnabled = it },
-                        modifier = Modifier.testTag("switch_auto_backup")
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Storage Location Card
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = CleanSurfaceVariant),
-                    border = BorderStroke(1.dp, CleanOutline),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = CleanPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Speicherort für Sicherungen:",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = darkTextColor
+                                imageVector = if (isOptionsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (isOptionsExpanded) "Einklappen" else "Ausklappen",
+                                tint = darkTextColor,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = backupPathDisplay,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = CleanPrimary,
-                            maxLines = 2
-                        )
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Text(
-                            text = "Zieldatei: ${DatabaseBackupManager.BACKUP_FILE_NAME}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = darkTextColor
-                        )
-
-                        if (currentSettings.lastBackupTimestamp > 0) {
-                            val lastDateStr = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY)
-                                .format(Date(currentSettings.lastBackupTimestamp))
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Letzte Sicherung: $lastDateStr",
-                                fontSize = 10.5.sp,
-                                color = darkMutedColor
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        AnimatedVisibility(
+                            visible = isOptionsExpanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
                         ) {
-                            OutlinedButton(
-                                onClick = { openFolderTreeLauncher.launch(null) },
+                            Column(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("btn_change_backup_location"),
-                                contentPadding = PaddingValues(vertical = 6.dp, horizontal = 10.dp),
-                                border = BorderStroke(1.dp, CleanPrimary)
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.FolderOpen,
-                                    contentDescription = null,
-                                    tint = CleanPrimary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Ordner wählen",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleanPrimary
-                                )
-                            }
+                                HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
 
-                            if (backupDirUri.isNotBlank()) {
-                                OutlinedButton(
-                                    onClick = {
-                                        backupDirUri = ""
-                                        backupPathDisplay = "App-Speicher (Dokumente / Blutdruck_Backups)"
-                                    },
-                                    modifier = Modifier.testTag("btn_reset_backup_location"),
-                                    contentPadding = PaddingValues(vertical = 6.dp, horizontal = 10.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Standard", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Automatisches Speicher-Löschen",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = darkTextColor
+                                        )
+                                        Text(
+                                            text = "Sendet nach Daten-Download MCLR-Löschbefehl an das Gerät.",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = darkMutedColor
+                                        )
+                                    }
+                                    Switch(
+                                        checked = autoErase,
+                                        onCheckedChange = { autoErase = it },
+                                        modifier = Modifier.testTag("switch_auto_erase")
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text(
+                                    text = "Diagramm-Skala (Maximalwert):",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = darkTextColor
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    listOf(180, 200, 210, 240).forEach { presetVal ->
+                                        val isSel = chartScaleMaxText == presetVal.toString()
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isSel) CleanPrimary else CleanSurfaceVariant,
+                                            border = BorderStroke(1.dp, if (isSel) CleanPrimary else CleanOutline),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { chartScaleMaxText = presetVal.toString() }
+                                        ) {
+                                            Text(
+                                                text = "$presetVal",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSel) Color.White else darkTextColor,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.padding(vertical = 8.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                OutlinedTextField(
+                                    value = chartScaleMaxText,
+                                    onValueChange = { chartScaleMaxText = it },
+                                    label = { Text("Max. Skalenwert manuell", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                    suffix = { Text("mmHg", color = darkTextColor, fontWeight = FontWeight.Bold) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    textStyle = boldDarkInputTextStyle,
+                                    colors = darkTextFieldColors,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("input_chart_scale_max")
+                                )
+
+                                if (onOpenDiagnose != null) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0xFF0F172A),
+                                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onOpenDiagnose() }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Terminal,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF38BDF8),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Text(
+                                                    text = "GATT & Bluetooth Diagnose",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.5.sp,
+                                                    color = Color(0xFFF1F5F9)
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFF0284C7)
+                                            ) {
+                                                Text(
+                                                    text = "ÖFFNEN",
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1067,88 +1037,404 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // Backup & Restore Actions
-                Row(
+                // ================= ACCORDION 4: DATENSICHERUNG =================
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    colors = CardDefaults.cardColors(containerColor = CleanBackground),
+                    border = BorderStroke(1.5.dp, if (isBackupExpanded) CleanPrimary else CleanOutline),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Button(
-                        onClick = {
-                            onBackupDatabaseNow()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CleanPrimary),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("btn_backup_database_now"),
-                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Backup,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Alles sichern",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Collapsible Header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    openSection = if (openSection == SettingsAccordionSection.BACKUP) {
+                                        SettingsAccordionSection.NONE
+                                    } else {
+                                        SettingsAccordionSection.BACKUP
+                                    }
+                                }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(CleanSurfaceVariant),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Storage,
+                                        contentDescription = null,
+                                        tint = CleanPrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "DATENSICHERUNG & BACKUP",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.5.sp,
+                                        color = darkTextColor
+                                    )
+                                    Text(
+                                        text = if (autoBackupEnabled) "Automatisches Backup aktiv" else "Manuelles Backup",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (autoBackupEnabled) CleanPrimary else darkMutedColor
+                                    )
+                                }
+                            }
 
-                    OutlinedButton(
-                        onClick = {
-                            openBackupDocLauncher.launch(arrayOf("application/octet-stream", "*/*"))
-                        },
-                        border = BorderStroke(1.dp, CleanPrimary),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("btn_restore_database"),
-                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Restore,
-                            contentDescription = null,
-                            tint = CleanPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Wiederherstellen",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = CleanPrimary
-                        )
+                            Icon(
+                                imageVector = if (isBackupExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (isBackupExpanded) "Einklappen" else "Ausklappen",
+                                tint = darkTextColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isBackupExpanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
+                            ) {
+                                HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
+
+                                // Scope Info Card
+                                Surface(
+                                    color = CleanSurfaceVariant,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, CleanOutline),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Storage,
+                                                contentDescription = null,
+                                                tint = CleanPrimary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Umfang der Datenbanksicherung:",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.5.sp,
+                                                color = darkTextColor
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "• Alle Messwerte beider Personen (Systole, Diastole, Puls, AFIB)\n• Alle Profile & Grenzwerte\n• Alle Bluetooth-Gerätezuordnungen & MACs",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = darkTextColor,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Auto-Backup Switch
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Automatische Datenbanksicherung",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = darkTextColor
+                                        )
+                                        Text(
+                                            text = "Sichert nach jedem Sync in ${DatabaseBackupManager.BACKUP_FILE_NAME}.",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = darkMutedColor
+                                        )
+                                    }
+                                    Switch(
+                                        checked = autoBackupEnabled,
+                                        onCheckedChange = { autoBackupEnabled = it },
+                                        modifier = Modifier.testTag("switch_auto_backup")
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Storage Location Card
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = CleanSurfaceVariant),
+                                    border = BorderStroke(1.dp, CleanOutline),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Folder,
+                                                contentDescription = null,
+                                                tint = CleanPrimary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Speicherort für Sicherungen:",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = darkTextColor
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Text(
+                                            text = backupPathDisplay,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CleanPrimary,
+                                            maxLines = 2
+                                        )
+
+                                        Spacer(modifier = Modifier.height(2.dp))
+
+                                        Text(
+                                            text = "Zieldatei: ${DatabaseBackupManager.BACKUP_FILE_NAME}",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = darkTextColor
+                                        )
+
+                                        if (currentSettings.lastBackupTimestamp > 0) {
+                                            val lastDateStr = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY)
+                                                .format(Date(currentSettings.lastBackupTimestamp))
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "Letzte Sicherung: $lastDateStr",
+                                                fontSize = 10.5.sp,
+                                                color = darkMutedColor
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = { openFolderTreeLauncher.launch(null) },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .testTag("btn_change_backup_location"),
+                                                contentPadding = PaddingValues(vertical = 6.dp, horizontal = 10.dp),
+                                                border = BorderStroke(1.dp, CleanPrimary)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.FolderOpen,
+                                                    contentDescription = null,
+                                                    tint = CleanPrimary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Ordner wählen",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = CleanPrimary
+                                                )
+                                            }
+
+                                            if (backupDirUri.isNotBlank()) {
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        backupDirUri = ""
+                                                        backupPathDisplay = "App-Speicher (Dokumente / Blutdruck_Backups)"
+                                                    },
+                                                    modifier = Modifier.testTag("btn_reset_backup_location"),
+                                                    contentPadding = PaddingValues(vertical = 6.dp, horizontal = 10.dp)
+                                                ) {
+                                                    Text("Standard", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Backup & Restore Actions
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            onBackupDatabaseNow()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CleanPrimary),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("btn_backup_database_now"),
+                                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Backup,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Alles sichern",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            openBackupDocLauncher.launch(arrayOf("application/octet-stream", "*/*"))
+                                        },
+                                        border = BorderStroke(1.dp, CleanPrimary),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("btn_restore_database"),
+                                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Restore,
+                                            contentDescription = null,
+                                            tint = CleanPrimary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Wiederherstellen",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CleanPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(color = CleanOutline)
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Section 5: Data Actions
-                Text(
-                    text = "DATENVERWALTUNG",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 11.sp,
-                    color = darkTextColor,
-                    letterSpacing = 1.2.sp
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        onClearAllData()
-                        onDismiss()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("btn_clear_all_data")
+                // ================= ACCORDION 5: DATENVERWALTUNG =================
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = CleanBackground),
+                    border = BorderStroke(1.5.dp, if (isDataExpanded) Color(0xFFD32F2F) else CleanOutline),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.DeleteForever, contentDescription = null, tint = Color.White)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Alle Messwerte löschen", fontWeight = FontWeight.Bold, color = Color.White)
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Collapsible Header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    openSection = if (openSection == SettingsAccordionSection.DATA) {
+                                        SettingsAccordionSection.NONE
+                                    } else {
+                                        SettingsAccordionSection.DATA
+                                    }
+                                }
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFFEBEE)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteForever,
+                                        contentDescription = null,
+                                        tint = Color(0xFFD32F2F),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "DATENVERWALTUNG",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.5.sp,
+                                        color = darkTextColor
+                                    )
+                                    Text(
+                                        text = "Messwerte zurücksetzen / löschen",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = darkMutedColor
+                                    )
+                                }
+                            }
+
+                            Icon(
+                                imageVector = if (isDataExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (isDataExpanded) "Einklappen" else "Ausklappen",
+                                tint = darkTextColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isDataExpanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
+                            ) {
+                                HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
+
+                                Button(
+                                    onClick = {
+                                        onClearAllData()
+                                        onDismiss()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("btn_clear_all_data")
+                                ) {
+                                    Icon(imageVector = Icons.Default.DeleteForever, contentDescription = null, tint = Color.White)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Alle Messwerte löschen", fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
