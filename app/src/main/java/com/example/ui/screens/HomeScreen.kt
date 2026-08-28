@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -167,8 +168,6 @@ fun HomeScreen(
                 if (result.success) {
                     exitBackupSuccess = true
                     exitBackupStatusText = result.message
-                    delay(1200)
-                    (context as? Activity)?.finishAffinity()
                 } else {
                     exitBackupSuccess = false
                     exitBackupStatusText = "Fehler beim Sichern: ${result.message}"
@@ -1213,11 +1212,36 @@ fun HomeScreen(
         )
     }
 
+    fun findActivity(ctx: Context): Activity? {
+        var current = ctx
+        while (current is ContextWrapper) {
+            if (current is Activity) return current
+            current = current.baseContext
+        }
+        return null
+    }
+
+    fun terminateApp() {
+        isExitBackupInProgress = false
+        val activity = findActivity(context)
+        if (activity != null) {
+            activity.finishAndRemoveTask()
+            activity.finishAffinity()
+        }
+        // Beendet den Android-Prozess restlos (wichtig für Samsung One UI / Android 14)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            android.os.Process.killProcess(android.os.Process.myPid())
+            System.exit(0)
+        }, 150)
+    }
+
     // Automatische Sicherung beim Beenden der App mit Statusmeldung
     if (isExitBackupInProgress) {
         AlertDialog(
             onDismissRequest = {
-                if (exitBackupSuccess == false) {
+                if (exitBackupSuccess == true) {
+                    terminateApp()
+                } else if (exitBackupSuccess == false) {
                     isExitBackupInProgress = false
                 }
             },
@@ -1269,7 +1293,7 @@ fun HomeScreen(
                     if (exitBackupSuccess == null) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "App schließt automatisch nach Abschluss...",
+                            text = "Sicherung wird durchgeführt...",
                             fontSize = 11.5.sp,
                             color = CleanMutedText
                         )
@@ -1277,12 +1301,18 @@ fun HomeScreen(
                 }
             },
             confirmButton = {
-                if (exitBackupSuccess == false) {
+                if (exitBackupSuccess == true) {
                     Button(
-                        onClick = {
-                            isExitBackupInProgress = false
-                            (context as? Activity)?.finishAffinity()
-                        },
+                        onClick = { terminateApp() },
+                        colors = ButtonDefaults.buttonColors(containerColor = CleanPrimary),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.testTag("btn_exit_backup_ok")
+                    ) {
+                        Text("OK", fontWeight = FontWeight.Bold)
+                    }
+                } else if (exitBackupSuccess == false) {
+                    Button(
+                        onClick = { terminateApp() },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
                         shape = RoundedCornerShape(10.dp)
                     ) {
