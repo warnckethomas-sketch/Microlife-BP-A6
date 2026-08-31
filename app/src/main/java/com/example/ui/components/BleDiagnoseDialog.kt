@@ -9,6 +9,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -270,6 +272,7 @@ fun BleDiagnoseDialog(
 
                     // Buttons for live GATT actions & test tools
                     Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -300,6 +303,26 @@ fun BleDiagnoseDialog(
                         ) {
                             Text(
                                 text = "⏰ Uhrzeit senden",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        FilledTonalButton(
+                            onClick = {
+                                viewModel.sendManualEraseMemory()
+                            },
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = Color(0xFFEF4444).copy(alpha = 0.15f),
+                                contentColor = Color(0xFFDC2626)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier
+                                .height(34.dp)
+                                .testTag("btn_manual_erase_memory")
+                        ) {
+                            Text(
+                                text = "🗑️ Speicher löschen",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )

@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
         val repository = BpRepository(database.bpDao(), applicationContext)
         val bleManager = MicrolifeBleManager(applicationContext)
 
-        val viewModelFactory = BpViewModelFactory(repository, bleManager)
+        val viewModelFactory = BpViewModelFactory(repository, bleManager, applicationContext)
         val viewModel = ViewModelProvider(this, viewModelFactory)[BpViewModel::class.java]
 
         setContent {

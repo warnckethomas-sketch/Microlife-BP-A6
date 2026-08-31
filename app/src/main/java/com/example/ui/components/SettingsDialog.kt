@@ -149,6 +149,31 @@ fun SettingsDialog(
     }
     var chartScaleMaxText by remember { mutableStateOf(currentSettings.chartScaleMax.toString()) }
 
+    LaunchedEffect(currentSettings) {
+        p1Name = currentSettings.person1.name
+        p1SysText = currentSettings.person1.systoleNormMax.toString()
+        p1DiaText = currentSettings.person1.diastoleNormMax.toString()
+        p1MeasurementsPerDayText = currentSettings.person1.measurementsPerDay.toString()
+        p1Device = currentSettings.person1.deviceAddress
+
+        p2Name = currentSettings.person2.name
+        p2SysText = currentSettings.person2.systoleNormMax.toString()
+        p2DiaText = currentSettings.person2.diastoleNormMax.toString()
+        p2MeasurementsPerDayText = currentSettings.person2.measurementsPerDay.toString()
+        p2Device = currentSettings.person2.deviceAddress
+
+        autoErase = currentSettings.autoEraseAfterSync
+        use12Hour = currentSettings.use12HourTimeFormat
+        autoBackupEnabled = currentSettings.autoBackupEnabled
+        backupDirUri = currentSettings.backupDirectoryUri
+        backupPathDisplay = DatabaseBackupManager.sanitizeDisplayName(
+            context,
+            currentSettings.backupDirectoryUri,
+            currentSettings.backupDirectoryPathDisplay
+        )
+        chartScaleMaxText = currentSettings.chartScaleMax.toString()
+    }
+
     // Collapsible accordion section state: all sections closed by default, only one open at a time
     var openSection by remember { mutableStateOf(SettingsAccordionSection.NONE) }
 
@@ -1454,17 +1479,17 @@ fun SettingsDialog(
                     onSaveSettings(
                         currentSettings.copy(
                             person1 = currentSettings.person1.copy(
-                                name = p1Name.ifBlank { "Person 1" },
+                                name = p1Name.trim().ifBlank { "Person 1" },
                                 systoleNormMax = p1Sys,
                                 diastoleNormMax = p1Dia,
-                                deviceAddress = p1Device,
+                                deviceAddress = p1Device.trim(),
                                 measurementsPerDay = p1Daily
                             ),
                             person2 = currentSettings.person2.copy(
-                                name = p2Name.ifBlank { "Person 2" },
+                                name = p2Name.trim().ifBlank { "Person 2" },
                                 systoleNormMax = p2Sys,
                                 diastoleNormMax = p2Dia,
-                                deviceAddress = p2Device,
+                                deviceAddress = p2Device.trim(),
                                 measurementsPerDay = p2Daily
                             ),
                             autoEraseAfterSync = autoErase,

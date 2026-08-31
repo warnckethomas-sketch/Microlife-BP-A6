@@ -25,7 +25,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalCoroutinesApi::class)
 class BpViewModel(
     private val repository: BpRepository,
-    private val bleManager: MicrolifeBleManager
+    private val bleManager: MicrolifeBleManager,
+    private val context: Context? = null
 ) : ViewModel() {
 
     val settings: StateFlow<UserSettings> = repository.settings
@@ -53,9 +54,22 @@ class BpViewModel(
                     val newlyInserted = repository.insertMeasurements(taggedMeasurements)
                     bleManager.updateSuccessInsertedCount(newlyInserted)
                     if (newlyInserted > 0) {
-                        bleManager.logDiagnose("💾 $newlyInserted neue Messwerte übertragen.")
+                        bleManager.logDiagnose("💾 $newlyInserted neue Messwerte in Datenbank gespeichert.")
                     } else {
-                        bleManager.logDiagnose("ℹ️ Keine neuen Messwerte übertragen.")
+                        bleManager.logDiagnose("ℹ️ Keine neuen Messwerte (bereits vorhanden).")
+                    }
+
+                    // Automatische Datensicherung direkt nach dem Datentransfer anstoßen
+                    context?.let { ctx ->
+                        if (settings.value.autoBackupEnabled) {
+                            bleManager.logDiagnose("📦 Starte automatische Datensicherung nach Datentransfer...")
+                            val backupResult = DatabaseBackupManager.performAutoBackupIfEnabled(ctx, repository)
+                            if (backupResult.success) {
+                                bleManager.logDiagnose("✓ Automatische Sicherung erfolgreich: ${backupResult.message}")
+                            } else {
+                                bleManager.logDiagnose("ℹ️ Automatische Sicherung: ${backupResult.message}")
+                            }
+                        }
                     }
                 }
             }
@@ -87,6 +101,15 @@ class BpViewModel(
     }
 
     fun connectToDevice(address: String) {
+        if (address.isNotBlank()) {
+            val current = settings.value
+            val updated = if (current.selectedUserIndex == 2) {
+                current.copy(person2 = current.person2.copy(deviceAddress = address))
+            } else {
+                current.copy(person1 = current.person1.copy(deviceAddress = address))
+            }
+            repository.saveSettings(updated)
+        }
         bleManager.connectToDevice(
             address = address,
             autoErase = settings.value.autoEraseAfterSync,
@@ -97,8 +120,9 @@ class BpViewModel(
     fun finishSyncAndClearDeviceMemory(context: Context? = null) {
         viewModelScope.launch {
             bleManager.completeBatchAndEraseMemory()
-            if (context != null) {
-                DatabaseBackupManager.performAutoBackupIfEnabled(context, repository)
+            val ctx = context ?: this@BpViewModel.context
+            if (ctx != null) {
+                DatabaseBackupManager.performAutoBackupIfEnabled(ctx, repository)
             }
         }
     }
@@ -124,6 +148,13 @@ class BpViewModel(
     fun sendManualReadDeviceTime(targetAddress: String? = null) {
         val address = targetAddress ?: settings.value.activePerson.deviceAddress
         bleManager.sendManualReadDeviceTime(
+            targetAddress = address.ifBlank { null }
+        )
+    }
+
+    fun sendManualEraseMemory(targetAddress: String? = null) {
+        val address = targetAddress ?: settings.value.activePerson.deviceAddress
+        bleManager.sendManualEraseMemory(
             targetAddress = address.ifBlank { null }
         )
     }
@@ -269,12 +300,13 @@ class BpViewModel(
 
 class BpViewModelFactory(
     private val repository: BpRepository,
-    private val bleManager: MicrolifeBleManager
+    private val bleManager: MicrolifeBleManager,
+    private val context: Context? = null
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(BpViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return BpViewModel(repository, bleManager) as T
+            return BpViewModel(repository, bleManager, context) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

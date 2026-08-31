@@ -150,6 +150,9 @@ class MicrolifeBleManager(private val context: Context) {
     private val dataBuffer = ByteArrayOutputStream()
     private var expectedTotalSize = 0
     private val receivedBatch = mutableListOf<BpMeasurement>()
+    private var isOnlyEraseMode = false
+    private var isDataDownloadCompleted = false
+    private var isErasingOrFinishing = false
 
     private val commandQueue: Queue<Runnable> = LinkedList()
     private var isCommandPending = false
@@ -471,12 +474,16 @@ class MicrolifeBleManager(private val context: Context) {
         autoErase: Boolean = false,
         is12HourFormat: Boolean = false,
         onlyTimeSync: Boolean = false,
-        onlyReadTime: Boolean = false
+        onlyReadTime: Boolean = false,
+        onlyErase: Boolean = false
     ) {
         this.autoEraseMemoryOnSync = autoErase
         this.is12HourTimeFormat = is12HourFormat
         this.isOnlyTimeSyncMode = onlyTimeSync
         this.isOnlyReadTimeMode = onlyReadTime
+        this.isOnlyEraseMode = onlyErase
+        this.isDataDownloadCompleted = onlyErase
+        this.isErasingOrFinishing = onlyErase
         this.measurementRequested = false
         this.timeSyncAckSent = false
         stopScan()
@@ -487,6 +494,7 @@ class MicrolifeBleManager(private val context: Context) {
         currentState = BleState.IDLE
 
         val modeStr = when {
+            onlyErase -> " (Reines Speicherlöschen)"
             onlyTimeSync -> " (Reine Uhrzeit-Einstellung)"
             onlyReadTime -> " (Reine Uhrzeit-Auslesung)"
             else -> " (Speicherlöschung: $autoErase)"
@@ -861,7 +869,20 @@ class MicrolifeBleManager(private val context: Context) {
                 return
             }
 
-            // Fall 3: Normaler Messdaten-Download (Reiner Datenstrom ohne Uhrzeitbefehl)
+            // Fall 3: Reiner Speicherlösch-Modus
+            if (isOnlyEraseMode) {
+                logDiagnose("▶ Reiner Speicherlösch-Modus: Sende vollständige Löschsequenz an das Gerät...")
+                scope.launch {
+                    sendEraseMemorySequence(gatt)
+                    delay(1200)
+                    logDiagnose("✓ Speicherlöschung erfolgreich abgeschlossen.")
+                    _syncStatus.value = BleSyncStatus.Success(0)
+                    disconnect()
+                }
+                return
+            }
+
+            // Fall 4: Normaler Messdaten-Download (Reiner Datenstrom ohne Uhrzeitbefehl)
             logDiagnose("▶ Stream-Kanal bereit. Fordere Messdaten direkt vom Aponorm Gerät an (reiner Datenstrom)...")
             _syncStatus.value = BleSyncStatus.Downloading(0, 1)
             sendPacket(gatt, CMD_GET_MEASUREMENTS, writeNoResponse = true)
@@ -950,6 +971,11 @@ class MicrolifeBleManager(private val context: Context) {
                 // Protokoll-Analyse für empfangene Microlife/Aponorm Pakete ('M' = 0x4D)
                 if (packet.isNotEmpty() && packet[0] == 0x4D.toByte()) {
                     analyzeAndLogIncomingPacketStructure(packet)
+                }
+
+                // Wenn Download bereits abgeschlossen ist oder Speicher gelöscht wird, keine weiteren Messungen parsen
+                if (isDataDownloadCompleted || isErasingOrFinishing) {
+                    return
                 }
 
                 // Handshake 0x81 (129) Bestätigung (Zeit-Sync Quittung)
@@ -1855,7 +1881,7 @@ class MicrolifeBleManager(private val context: Context) {
     /**
      * Erstellt den echten Microlife Speicher-Löschbefehl (Opcode 0xFC im 9-Byte Format)
      */
-    fun buildEraseMemoryCommand(headerByte: Byte = 0xFF.toByte()): ByteArray {
+    fun buildEraseMemoryCommand(headerByte: Byte = 0x31.toByte()): ByteArray {
         val cmd = byteArrayOf(
             0x4D.toByte(),
             headerByte,
@@ -1879,6 +1905,91 @@ class MicrolifeBleManager(private val context: Context) {
         return cmd
     }
 
+    /**
+     * Sendet die vollständige Speicher-Löschsequenz an das Gerät:
+     * - Header 0x31 (M1 / Aponorm BP3Gu1-6B)
+     * - Header 0xFF (Microlife Default)
+     * - Header 0x3A (Microlife M: Modell)
+     * - Aponorm 6-Byte Kurzbefehl Opcode 0xFC
+     * - UART MCLR ASCII Befehl
+     * - Aponorm Opcode 0x05 Löschbefehl
+     */
+    @SuppressLint("MissingPermission")
+    suspend fun sendEraseMemorySequence(gatt: BluetoothGatt) {
+        logDiagnose("▶ SCHRITT 7: Sende vollständige Aponorm/Microlife Speicher-Löschsequenz...")
+
+        // 1. Aponorm M1 Löschbefehl (Header 0x31, Opcode 0xFC, 13 Bytes)
+        val eraseCmd31 = buildEraseMemoryCommand(headerByte = 0x31.toByte())
+        val hex31 = eraseCmd31.joinToString(" ") { "%02X".format(it) }
+        logDiagnose("   ├-- 1/6 Sende M1-Löschbefehl (Header 0x31, Opcode 0xFC): $hex31")
+        sendPacket(gatt, eraseCmd31, writeNoResponse = true)
+        delay(150)
+
+        // 2. Microlife Header 0xFF Löschbefehl (Opcode 0xFC, 13 Bytes)
+        val eraseCmdFF = buildEraseMemoryCommand(headerByte = 0xFF.toByte())
+        val hexFF = eraseCmdFF.joinToString(" ") { "%02X".format(it) }
+        logDiagnose("   ├-- 2/6 Sende Microlife Header 0xFF Löschbefehl (Opcode 0xFC): $hexFF")
+        sendPacket(gatt, eraseCmdFF, writeNoResponse = true)
+        delay(150)
+
+        // 3. Microlife Header 0x3A Löschbefehl (Opcode 0xFC, 13 Bytes)
+        val eraseCmd3A = buildEraseMemoryCommand(headerByte = 0x3A.toByte())
+        val hex3A = eraseCmd3A.joinToString(" ") { "%02X".format(it) }
+        logDiagnose("   ├-- 3/6 Sende Microlife Header 0x3A Löschbefehl (Opcode 0xFC): $hex3A")
+        sendPacket(gatt, eraseCmd3A, writeNoResponse = true)
+        delay(150)
+
+        // 4. Aponorm Kurzbefehl Opcode 0xFC (Länge 1, [0x4D, 0x31, 0x00, 0x01, 0xFC, 0x7B])
+        val shortErase = byteArrayOf(0x4D.toByte(), 0x31.toByte(), 0x00.toByte(), 0x01.toByte(), 0xFC.toByte(), 0x7B.toByte())
+        val hexShort = shortErase.joinToString(" ") { "%02X".format(it) }
+        logDiagnose("   ├-- 4/6 Sende Aponorm Kurzbefehl Opcode 0xFC: $hexShort")
+        sendPacket(gatt, shortErase, writeNoResponse = true)
+        delay(150)
+
+        // 5. MCLR ASCII Löschbefehl ("MCLR" & "MCLR\r\n")
+        val mclrBytes = byteArrayOf(0x4D.toByte(), 0x43.toByte(), 0x4C.toByte(), 0x52.toByte())
+        val mclrCrlf = byteArrayOf(0x4D.toByte(), 0x43.toByte(), 0x4C.toByte(), 0x52.toByte(), 0x0D.toByte(), 0x0A.toByte())
+        logDiagnose("   ├-- 5/6 Sende MCLR UART Löschkommando ('MCLR')")
+        sendPacket(gatt, mclrBytes, writeNoResponse = true)
+        delay(80)
+        sendPacket(gatt, mclrCrlf, writeNoResponse = true)
+        delay(150)
+
+        // 6. Opcode 0x05 Löschbefehl ([0x4D, 0x31, 0x00, 0x01, 0x05, 0x84])
+        val op05Cmd = byteArrayOf(0x4D.toByte(), 0x31.toByte(), 0x00.toByte(), 0x01.toByte(), 0x05.toByte(), 0x84.toByte())
+        val hex05 = op05Cmd.joinToString(" ") { "%02X".format(it) }
+        logDiagnose("   └-- 6/6 Sende Aponorm Opcode 0x05 Löschbefehl: $hex05")
+        sendPacket(gatt, op05Cmd, writeNoResponse = true)
+        delay(250)
+
+        logDiagnose("✓ Speicherlöschbefehle vollständig übertragen.")
+    }
+
+    /**
+     * Startet manuelles Löschen des Gerätespeichers.
+     */
+    @SuppressLint("MissingPermission")
+    fun sendManualEraseMemory(targetAddress: String? = null) {
+        this.isOnlyEraseMode = true
+        this.isDataDownloadCompleted = true
+        this.isErasingOrFinishing = true
+        if (bluetoothGatt != null && realGattConnected) {
+            logDiagnose("▶ Sende sofortige Speicher-Löschsequenz an aktive GATT-Verbindung...")
+            scope.launch {
+                sendEraseMemorySequence(bluetoothGatt!!)
+                delay(1000)
+                logDiagnose("✓ Manueller Speicher-Löschvorgang beendet.")
+                _syncStatus.value = BleSyncStatus.Success(0)
+                disconnect()
+            }
+        } else if (!targetAddress.isNullOrBlank()) {
+            logDiagnose("▶ Baue Bluetooth-Verbindung zu $targetAddress für Speicherlöschung auf...")
+            connectToDevice(targetAddress, autoErase = true, is12HourFormat = this.is12HourTimeFormat, onlyErase = true)
+        } else {
+            logDiagnose("⚠️ Keine aktive GATT-Verbindung und kein Gerät konfiguriert.")
+        }
+    }
+
     // Feste Befehls-Arrays laut Aponorm / Microlife Protokoll
     private val CMD_GET_MEASUREMENTS = byteArrayOf(
         77.toByte(), 0xFF.toByte(), 0.toByte(), 9.toByte(),
@@ -1894,9 +2005,18 @@ class MicrolifeBleManager(private val context: Context) {
         streamEndRunnable?.let { handler.removeCallbacks(it) }
         val r = Runnable {
             scope.launch {
-                if (receivedBatch.isNotEmpty() && _syncStatus.value !is BleSyncStatus.Success && _syncStatus.value !is BleSyncStatus.Error) {
-                    logDiagnose("✓ Alle Messwerte empfangen (${receivedBatch.size} Einträge). Schließe Synchronisation ab...")
-                    completeBatchAndFinish()
+                if (!isDataDownloadCompleted && !isErasingOrFinishing) {
+                    val currentBuffer = dataBuffer.toByteArray()
+                    if (currentBuffer.size >= 7) {
+                        logDiagnose("✓ Datenstrom abgeschlossen (${currentBuffer.size} Bytes). Starte Dekodierung...")
+                        parseAponormDataStream(currentBuffer, currentBuffer.size)
+                    } else if (receivedBatch.isNotEmpty()) {
+                        logDiagnose("✓ Alle Messwerte empfangen (${receivedBatch.size} Einträge). Schließe Synchronisation ab...")
+                        completeBatchAndFinish()
+                    } else {
+                        logDiagnose("ℹ️ Keine Messdaten im Datenstrom empfangen.")
+                        completeBatchAndFinish()
+                    }
                 }
             }
         }
@@ -1914,19 +2034,15 @@ class MicrolifeBleManager(private val context: Context) {
         if (_syncStatus.value is BleSyncStatus.Success || _syncStatus.value is BleSyncStatus.Error) {
             return
         }
+        isDataDownloadCompleted = true
 
         val count = receivedBatch.size
         if (count > 0) {
             if (autoEraseMemoryOnSync) {
+                isErasingOrFinishing = true
                 _syncStatus.value = BleSyncStatus.ErasingMemory
-                logDiagnose("▶ SCHRITT 7: Lösche Gerätespeicher auf Wunsch des Nutzers...")
-                delay(300)
-
                 bluetoothGatt?.let { gatt ->
-                    // Standardisierter Microlife 9-Byte Speicher-Löschbefehl (Opcode 0xFC)
-                    val eraseCmd = buildEraseMemoryCommand(headerByte = 0xFF.toByte())
-                    sendPacket(gatt, eraseCmd, writeNoResponse = true)
-                    logDiagnose("   └-- Speicherlöschbefehl (Opcode 0xFC) gesendet.")
+                    sendEraseMemorySequence(gatt)
                 }
                 delay(400)
             } else {
@@ -1939,7 +2055,7 @@ class MicrolifeBleManager(private val context: Context) {
 
             _downloadedMeasurements.emit(receivedBatch.toList())
             _syncStatus.value = BleSyncStatus.Success(count)
-            logDiagnose("🎉 SYNCHRONISATION ERFOLGREICH: Datenübertragung abgeschlossen.")
+            logDiagnose("🎉 SYNCHRONISATION ERFOLGREICH: $count echte Messungen übertragen.")
 
             // Sende Uhrzeit-Synchronisation an das Gerät als Abschluss-Handshake
             bluetoothGatt?.let { gatt ->
@@ -1985,7 +2101,10 @@ class MicrolifeBleManager(private val context: Context) {
                 delay(2000)
             }
         } else {
-            _syncStatus.value = BleSyncStatus.Error("Keine Messdaten vom Microlife / aponorm® Gerät empfangen. Bitte stellen Sie sicher, dass das Blutdruckmessgerät eingeschaltet ist (Bluetooth-Symbol leuchtet/blinkt).")
+            // Keine neuen Messungen (Gerätespeicher war bereits leer oder wurde gelöscht)
+            _downloadedMeasurements.emit(emptyList())
+            _syncStatus.value = BleSyncStatus.Success(0)
+            logDiagnose("ℹ️ Gerätespeicher ist leer (0 Messungen gefunden).")
         }
 
         delay(500)
@@ -2124,10 +2243,10 @@ class MicrolifeBleManager(private val context: Context) {
     }
 
     /**
-     * Dekodiert einen 7-Byte Messdatensatz des Aponorm BP3Gu1-6B:
-     * [0] Systole (mmHg direkt)
-     * [1] Diastole (mmHg direkt)
-     * [2] Puls (bpm direkt)
+     * Dekodiert einen echten 7-Byte Messdatensatz des Aponorm BP3Gu1-6B:
+     * [0] Systole (mmHg direkt, z.B. 120)
+     * [1] Diastole (mmHg direkt, z.B. 80)
+     * [2] Puls (bpm direkt, z.B. 72)
      * [3] Tag (1-31, obere Bits 0xD0 / 0xC0 kennzeichnen Vormonate wie Juli)
      * [4] Stunde (0x8x/0x4x für AM/Vormittag, 0x9x/0x5x für PM/Nachmittag -> hour24 = b4 & 0x3F)
      * [5] Minute (0-59)
@@ -2144,23 +2263,33 @@ class MicrolifeBleManager(private val context: Context) {
         val minRaw   = record[offset + 5].toInt() and 0xFF
         val yearRaw  = record[offset + 6].toInt() and 0xFF
 
-        // Plausibilitätsfilter für Blutdruckwerte
+        // Plausibilitätsfilter für echte Blutdruckwerte (Verhindert Fake- oder Null-Daten)
         if (sysRaw !in 50..260 || diaRaw !in 30..180 || pulseRaw !in 30..240) return null
+        // Physiologische Plausibilität: Systole muss mindestens 15 mmHg höher sein als Diastole
+        if (sysRaw <= diaRaw + 15) return null
         if (minRaw !in 0..59) return null
 
         val yearVal = yearRaw and 0x3F
-        val year = if (yearVal in 1..99) 2000 + yearVal else 2026
+        val year = if (yearVal in 1..99) 2000 + yearVal else return null
         if (year !in 2020..2030) return null
 
         // Tag und Monat auslesen:
-        // 0xD0..0xDF / 0xC0..0xCF kennzeichnen Einträge aus dem Vormonat (Juli, 7)
-        val isJuly = rawDayByte >= 0xC0
-        val day = if (isJuly) (rawDayByte and 0x1F) else rawDayByte
+        // 0xD0..0xDF / 0xC0..0xCF kennzeichnen Einträge aus dem Vormonat (z.B. Juli)
+        val isPrevMonth = rawDayByte >= 0xC0
+        val day = if (isPrevMonth) (rawDayByte and 0x1F) else rawDayByte
         if (day !in 1..31) return null
-        val effMonth = if (isJuly) 7 else 8 // Juli bei Vormonats-Flag, sonst August
 
-        // Stunde: Bei Microlife BP3Gu1-6B liefert (b4 and 0x3F) direkt den 24h-Wert (0x12 -> 18 = 6 PM, 0x86 -> 6 = 6 AM)
+        val currentMonth = Calendar.getInstance().get(Calendar.MONTH) + 1
+        val effMonth = if (isPrevMonth) {
+            if (currentMonth == 1) 12 else currentMonth - 1
+        } else {
+            currentMonth
+        }
+
+        // Stunde: Bei Microlife BP3Gu1-6B liefert (b4 and 0x3F) den 24h-Wert
         val hour24 = (b4 and 0x3F).let { if (it in 0..23) it else (b4 and 0x1F) }
+        if (hour24 !in 0..23) return null
+
         val isPm = hour24 >= 12
         val hour12 = when {
             hour24 == 0 -> 12
@@ -2211,7 +2340,7 @@ class MicrolifeBleManager(private val context: Context) {
             return
         }
 
-        logDiagnose("📊 Scanne $totalLength Gerätedaten-Bytes nach allen echten 7-Byte Aponorm-Messsätzen (inkl. Juli und August)...")
+        logDiagnose("📊 Scanne $totalLength Gerätedaten-Bytes nach allen echten 7-Byte Aponorm-Messsätzen...")
         var messungsIndex = 0
         var foundCount = 0
 
@@ -2221,7 +2350,6 @@ class MicrolifeBleManager(private val context: Context) {
             if (decoded != null) {
                 val (measurement, dt) = decoded
                 
-                // Alle validen Messungen übernehmen (auch ältere aus Juli ab 24.07.)
                 messungsIndex++
                 val ausgabe = String.format(
                     "MESSUNG Nr. %d -> %s | SYS: %d mmHg | DIA: %d mmHg | PULS: %d /min",
@@ -2241,69 +2369,9 @@ class MicrolifeBleManager(private val context: Context) {
         }
 
         if (foundCount == 0) {
-            logDiagnose("ℹ️ Keine Messwerte mit 7-Byte Scanner gefunden. Führe Fallback-Analyse aus...")
-            parseAponormDataFallback(rawData, totalLength)
+            logDiagnose("ℹ️ Keine gespeicherten Messwerte im Gerätespeicher gefunden (Speicher ist leer).")
         } else {
             logDiagnose("✓ $foundCount echte Messwerte erfolgreich entschlüsselt und importiert.")
-            scope.launch {
-                completeBatchAndFinish()
-            }
-        }
-    }
-
-    private fun parseAponormDataFallback(rawData: ByteArray, totalLength: Int) {
-        val startOffsets = listOf(4, 38, 0, 6)
-        var foundCount = 0
-
-        for (startOffset in startOffsets) {
-            if (startOffset >= totalLength - 7) continue
-            var i = startOffset
-            while (i < totalLength - 1) {
-                if (i + 6 >= totalLength) break
-
-                val rawSys   = rawData[i].toInt() and 0xFF
-                val rawDia   = rawData[i + 1].toInt() and 0xFF
-                val rawPulse = rawData[i + 2].toInt() and 0xFF
-
-                val echteSystole  = if (rawSys in 20..220) rawSys + 30 else rawSys
-                val echteDiastole = if (rawDia in 15..165) rawDia + 15 else rawDia
-                val echterPuls    = if (rawPulse in 30..240) rawPulse else 70
-
-                val rawYear  = rawData[i + 3].toInt() and 0xFF
-                val rawMonth = rawData[i + 4].toInt() and 0xFF
-                val rawDay   = rawData[i + 5].toInt() and 0xFF
-                val rawHour  = if (i + 6 < totalLength) rawData[i + 6].toInt() and 0xFF else 0
-                val rawMin   = if (i + 7 < totalLength) rawData[i + 7].toInt() and 0xFF else 0
-                val b7       = if (i + 7 < totalLength) rawData[i + 7].toInt() and 0xFF else 0
-
-                val dt = decodeMicrolifeDateTime(rawYear, rawMonth, rawDay, rawHour, rawMin)
-
-                if (echteSystole in 50..260 && echteDiastole in 30..180) {
-                    val afib = (b7 and 0x01 != 0) || (b7 and 0x04 != 0) || (b7 and 0x80 != 0)
-
-                    val measurement = BpMeasurement(
-                        timestamp = dt.timestamp,
-                        systole = echteSystole,
-                        diastole = echteDiastole,
-                        pulse = echterPuls,
-                        afibDetected = afib,
-                        notes = "aponorm® / Microlife Messung"
-                    )
-
-                    if (receivedBatch.none { it.timestamp == measurement.timestamp && it.systole == measurement.systole }) {
-                        receivedBatch.add(measurement)
-                        foundCount++
-                    }
-                }
-                i += 10
-            }
-            if (foundCount > 0) break
-        }
-
-        if (foundCount == 0) {
-            logDiagnose("ℹ️ Keine gespeicherten Messwerte im Gerätespeicher gefunden.")
-        } else {
-            logDiagnose("✓ $foundCount Messwerte über Fallback entschlüsselt und importiert.")
         }
 
         scope.launch {

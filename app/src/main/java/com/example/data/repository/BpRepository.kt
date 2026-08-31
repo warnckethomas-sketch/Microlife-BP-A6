@@ -3,11 +3,16 @@ package com.example.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.example.data.dao.BpDao
+import com.example.data.model.AppSettingsEntity
 import com.example.data.model.BpMeasurement
+import com.example.data.model.PersonProfileEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 data class PersonProfile(
     val userIndex: Int = 1,
@@ -61,8 +66,46 @@ class BpRepository(
     private val prefs: SharedPreferences =
         context.getSharedPreferences("microlife_settings", Context.MODE_PRIVATE)
 
+    private val repositoryScope = CoroutineScope(Dispatchers.IO)
+
     private val _settings = MutableStateFlow(loadSettings())
     val settings: StateFlow<UserSettings> = _settings.asStateFlow()
+
+    init {
+        // Asynchron aus Room-Datenbank laden bzw. initiale Profile in DB absichern
+        repositoryScope.launch {
+            try {
+                val dbProfiles = bpDao.getAllPersonProfiles()
+                val dbSettings = bpDao.getAppSettings()
+
+                if (dbProfiles.isNotEmpty()) {
+                    val p1 = dbProfiles.find { it.userIndex == 1 }?.toDomain() ?: _settings.value.person1
+                    val p2 = dbProfiles.find { it.userIndex == 2 }?.toDomain() ?: _settings.value.person2
+
+                    val updated = _settings.value.copy(
+                        person1 = p1,
+                        person2 = p2,
+                        selectedUserIndex = dbSettings?.selectedUserIndex ?: _settings.value.selectedUserIndex,
+                        autoEraseAfterSync = dbSettings?.autoEraseAfterSync ?: _settings.value.autoEraseAfterSync,
+                        use12HourTimeFormat = dbSettings?.use12HourTimeFormat ?: _settings.value.use12HourTimeFormat,
+                        autoBackupEnabled = dbSettings?.autoBackupEnabled ?: _settings.value.autoBackupEnabled,
+                        backupDirectoryUri = dbSettings?.backupDirectoryUri ?: _settings.value.backupDirectoryUri,
+                        backupDirectoryPathDisplay = dbSettings?.backupDirectoryPathDisplay ?: _settings.value.backupDirectoryPathDisplay,
+                        lastBackupTimestamp = dbSettings?.lastBackupTimestamp ?: _settings.value.lastBackupTimestamp,
+                        chartScaleMin = dbSettings?.chartScaleMin ?: _settings.value.chartScaleMin,
+                        chartScaleMax = dbSettings?.chartScaleMax ?: _settings.value.chartScaleMax
+                    )
+                    _settings.value = updated
+                    saveToPreferences(updated)
+                } else {
+                    // Initialzustand in die Room-Datenbank schreiben
+                    persistSettingsToDatabase(_settings.value)
+                }
+            } catch (e: Exception) {
+                // Bei Migration oder Erststart Fallback auf Prefs
+            }
+        }
+    }
 
     val allMeasurements: Flow<List<BpMeasurement>> = bpDao.getAllMeasurements()
 
@@ -115,7 +158,7 @@ class BpRepository(
         )
     }
 
-    fun saveSettings(newSettings: UserSettings) {
+    private fun saveToPreferences(newSettings: UserSettings) {
         prefs.edit()
             .putInt("selected_user_index", newSettings.selectedUserIndex)
             .putString("p1_name", newSettings.person1.name)
@@ -137,7 +180,44 @@ class BpRepository(
             .putInt("chart_scale_min", newSettings.chartScaleMin)
             .putInt("chart_scale_max", newSettings.chartScaleMax)
             .apply()
+    }
+
+    private suspend fun persistSettingsToDatabase(newSettings: UserSettings) {
+        try {
+            val p1Entity = PersonProfileEntity.fromDomain(newSettings.person1)
+            val p2Entity = PersonProfileEntity.fromDomain(newSettings.person2)
+            bpDao.insertPersonProfiles(listOf(p1Entity, p2Entity))
+
+            val settingsEntity = AppSettingsEntity(
+                id = 1,
+                selectedUserIndex = newSettings.selectedUserIndex,
+                autoEraseAfterSync = newSettings.autoEraseAfterSync,
+                use12HourTimeFormat = newSettings.use12HourTimeFormat,
+                autoBackupEnabled = newSettings.autoBackupEnabled,
+                backupDirectoryUri = newSettings.backupDirectoryUri,
+                backupDirectoryPathDisplay = newSettings.backupDirectoryPathDisplay,
+                lastBackupTimestamp = newSettings.lastBackupTimestamp,
+                chartScaleMin = newSettings.chartScaleMin,
+                chartScaleMax = newSettings.chartScaleMax
+            )
+            bpDao.insertAppSettings(settingsEntity)
+        } catch (e: Exception) {
+            // Log or ignore
+        }
+    }
+
+    fun saveSettings(newSettings: UserSettings) {
+        saveToPreferences(newSettings)
         _settings.value = newSettings
+        repositoryScope.launch {
+            persistSettingsToDatabase(newSettings)
+        }
+    }
+
+    suspend fun saveSettingsSync(newSettings: UserSettings) {
+        saveToPreferences(newSettings)
+        _settings.value = newSettings
+        persistSettingsToDatabase(newSettings)
     }
 
     fun updateLastBackupTimestamp(timestamp: Long) {

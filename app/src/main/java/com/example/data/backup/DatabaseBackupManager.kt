@@ -534,7 +534,7 @@ object DatabaseBackupManager {
                 autoBackupEnabled = root.optJSONObject("settings")?.optBoolean("autoBackupEnabled", curSettings.autoBackupEnabled) ?: curSettings.autoBackupEnabled
             )
 
-            repository.saveSettings(restoredSettings)
+            repository.saveSettingsSync(restoredSettings)
 
             val totalRestored = parsedList.size
             val newAdded = toInsert.size
@@ -564,20 +564,23 @@ object DatabaseBackupManager {
     suspend fun performAutoBackupIfEnabled(
         context: Context,
         repository: BpRepository
-    ) {
+    ): BackupResult {
         val settings = repository.settings.value
         if (settings.autoBackupEnabled) {
-            try {
-                exportBackupToDirectory(
+            return try {
+                val res = exportBackupToDirectory(
                     context = context,
                     repository = repository,
                     customDirUriStr = settings.backupDirectoryUri.ifBlank { null }
                 )
-                Log.d(TAG, "Auto-backup successfully completed.")
+                Log.d(TAG, "Auto-backup completed: ${res.message}")
+                res
             } catch (e: Exception) {
                 Log.e(TAG, "Auto-backup error", e)
+                BackupResult(success = false, message = "Fehler bei automatischer Sicherung: ${e.localizedMessage}")
             }
         }
+        return BackupResult(success = false, message = "Automatische Sicherung ist deaktiviert.")
     }
 
     fun generateDefaultBackupFileName(): String {
