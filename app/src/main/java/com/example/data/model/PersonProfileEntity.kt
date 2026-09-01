@@ -12,7 +12,8 @@ data class PersonProfileEntity(
     val systoleNormMax: Int = 135,
     val diastoleNormMax: Int = 85,
     val deviceAddress: String = "",
-    val measurementsPerDay: Int = 2
+    val measurementsPerDay: Int = 2,
+    val birthDate: String = ""
 ) {
     fun toDomain(): PersonProfile {
         return PersonProfile(
@@ -21,7 +22,8 @@ data class PersonProfileEntity(
             systoleNormMax = systoleNormMax,
             diastoleNormMax = diastoleNormMax,
             deviceAddress = deviceAddress,
-            measurementsPerDay = measurementsPerDay
+            measurementsPerDay = measurementsPerDay,
+            birthDate = birthDate
         )
     }
 
@@ -33,7 +35,8 @@ data class PersonProfileEntity(
                 systoleNormMax = profile.systoleNormMax,
                 diastoleNormMax = profile.diastoleNormMax,
                 deviceAddress = profile.deviceAddress,
-                measurementsPerDay = profile.measurementsPerDay
+                measurementsPerDay = profile.measurementsPerDay,
+                birthDate = profile.birthDate
             )
         }
     }

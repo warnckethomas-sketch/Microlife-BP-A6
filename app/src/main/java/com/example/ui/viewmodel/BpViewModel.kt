@@ -88,7 +88,6 @@ class BpViewModel(
         if (activeDevice.isNotBlank()) {
             bleManager.connectToDevice(
                 address = activeDevice,
-                autoErase = settings.value.autoEraseAfterSync,
                 is12HourFormat = settings.value.use12HourTimeFormat
             )
         } else {
@@ -112,7 +111,6 @@ class BpViewModel(
         }
         bleManager.connectToDevice(
             address = address,
-            autoErase = settings.value.autoEraseAfterSync,
             is12HourFormat = settings.value.use12HourTimeFormat
         )
     }
@@ -148,13 +146,6 @@ class BpViewModel(
     fun sendManualReadDeviceTime(targetAddress: String? = null) {
         val address = targetAddress ?: settings.value.activePerson.deviceAddress
         bleManager.sendManualReadDeviceTime(
-            targetAddress = address.ifBlank { null }
-        )
-    }
-
-    fun sendManualEraseMemory(targetAddress: String? = null) {
-        val address = targetAddress ?: settings.value.activePerson.deviceAddress
-        bleManager.sendManualEraseMemory(
             targetAddress = address.ifBlank { null }
         )
     }

@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -78,9 +80,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
@@ -104,9 +108,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.example.data.backup.BackupResult
 import com.example.ui.components.BleDiagnoseDialog
@@ -114,6 +121,7 @@ import com.example.ui.components.BleSyncBottomSheet
 import com.example.ui.components.BpLineChart
 import com.example.ui.components.MeasurementCard
 import com.example.ui.components.SettingsDialog
+import com.example.ui.components.calculateAgeYears
 import com.example.ui.theme.CleanAlertContainer
 import com.example.ui.theme.CleanAlertText
 import com.example.ui.theme.CleanBackground
@@ -184,11 +192,19 @@ fun HomeScreen(
         performBackupAndExit()
     }
 
-    // Group measurements by Month and Year (descending)
+    // Group measurements by Month and Year (descending), always ensuring current calendar month is present
     val groupedMonths = remember(measurements) {
         val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.GERMAN)
         val map = linkedMapOf<String, Triple<Int, Int, MutableList<com.example.data.model.BpMeasurement>>>()
 
+        // 1. Immer den aktuellen Kalendermonat anlegen (auch wenn noch 0 Messungen vorhanden sind)
+        val nowCal = Calendar.getInstance()
+        val curYear = nowCal.get(Calendar.YEAR)
+        val curMonth = nowCal.get(Calendar.MONTH)
+        val curKey = String.format(Locale.US, "%04d-%02d", curYear, curMonth)
+        map[curKey] = Triple(curYear, curMonth, mutableListOf())
+
+        // 2. Alle vorhandenen Messwerte ihren Monaten zuordnen
         measurements.forEach { m ->
             val cal = Calendar.getInstance().apply { timeInMillis = m.timestamp }
             val y = cal.get(Calendar.YEAR)
@@ -198,7 +214,13 @@ fun HomeScreen(
             entry.third.add(m)
         }
 
-        map.map { (key, triple) ->
+        // 3. Nach Jahr und Monat absteigend sortieren
+        val sortedEntries = map.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Triple<Int, Int, MutableList<com.example.data.model.BpMeasurement>>>> { it.value.first }
+                .thenByDescending { it.value.second }
+        )
+
+        sortedEntries.map { (key, triple) ->
             val cal = Calendar.getInstance().apply {
                 set(Calendar.YEAR, triple.first)
                 set(Calendar.MONTH, triple.second)
@@ -211,7 +233,8 @@ fun HomeScreen(
                 year = triple.first,
                 month = triple.second,
                 monthYearLabel = label,
-                measurements = triple.third
+                measurements = triple.third,
+                isCurrentMonth = (triple.first == curYear && triple.second == curMonth)
             )
         }
     }
@@ -299,140 +322,170 @@ fun HomeScreen(
     Scaffold(
         containerColor = CleanBackground,
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(CleanPrimary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Favorite,
-                                contentDescription = null,
-                                tint = CleanOnPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(CleanPrimary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = null,
+                                    tint = CleanOnPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Microlife Monitor",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 17.sp,
+                                    color = CleanOnSurface
+                                )
+                                Text(
+                                    text = "2-PERSONEN VERWALTUNG",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CleanOnSurfaceVariant,
+                                    letterSpacing = 0.8.sp
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Microlife Monitor",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 17.sp,
-                                color = CleanOnSurface
-                            )
-                            Text(
-                                text = "2-PERSONEN VERWALTUNG",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = CleanOnSurfaceVariant,
-                                letterSpacing = 0.8.sp
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    // Drei-Punkte-Menü als runder blauer Kreis mit Einstellungen, Diagnose & Beenden
-                    Box {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(CleanPrimary)
-                                .clickable { showOverflowMenu = true }
-                                .testTag("btn_overflow_menu"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Menü Optionen",
-                                tint = CleanOnPrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
+                    },
+                    actions = {
+                        // Drei-Punkte-Menü als runder blauer Kreis mit Einstellungen, Diagnose & Beenden
+                        Box {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(CleanPrimary)
+                                    .clickable { showOverflowMenu = true }
+                                    .testTag("btn_overflow_menu"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Menü Optionen",
+                                    tint = CleanOnPrimary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false },
+                                modifier = Modifier.background(CleanSurface)
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Einstellungen",
+                                            fontWeight = FontWeight.Medium,
+                                            color = CleanOnSurface
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = null,
+                                            tint = CleanPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showSettingsDialog = true
+                                    },
+                                    modifier = Modifier.testTag("menu_settings")
+                                )
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "GATT BLE-Diagnose",
+                                            fontWeight = FontWeight.Medium,
+                                            color = CleanOnSurface
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Terminal,
+                                            contentDescription = null,
+                                            tint = Color(0xFF0284C7)
+                                        )
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showDiagnoseDialog = true
+                                    },
+                                    modifier = Modifier.testTag("menu_diagnose")
+                                )
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Uhr stellen",
+                                            fontWeight = FontWeight.Medium,
+                                            color = CleanOnSurface
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AccessTime,
+                                            contentDescription = null,
+                                            tint = CleanPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showBleBottomSheet = true
+                                        viewModel.sendManualTimeSync()
+                                    },
+                                    modifier = Modifier.testTag("menu_set_clock")
+                                )
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Beenden",
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFDC2626)
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                            contentDescription = null,
+                                            tint = Color(0xFFDC2626)
+                                        )
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        performBackupAndExit()
+                                    },
+                                    modifier = Modifier.testTag("menu_exit_app")
+                                )
+                            }
                         }
 
-                        DropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { showOverflowMenu = false },
-                            modifier = Modifier.background(CleanSurface)
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = "Einstellungen",
-                                        fontWeight = FontWeight.Medium,
-                                        color = CleanOnSurface
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Settings,
-                                        contentDescription = null,
-                                        tint = CleanPrimary
-                                    )
-                                },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    showSettingsDialog = true
-                                },
-                                modifier = Modifier.testTag("menu_settings")
-                            )
-
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = "GATT BLE-Diagnose",
-                                        fontWeight = FontWeight.Medium,
-                                        color = CleanOnSurface
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Terminal,
-                                        contentDescription = null,
-                                        tint = Color(0xFF0284C7)
-                                    )
-                                },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    showDiagnoseDialog = true
-                                },
-                                modifier = Modifier.testTag("menu_diagnose")
-                            )
-
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = "Sichern & Beenden",
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFDC2626)
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                                        contentDescription = null,
-                                        tint = Color(0xFFDC2626)
-                                    )
-                                },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    performBackupAndExit()
-                                },
-                                modifier = Modifier.testTag("menu_exit_app")
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = CleanSurface
+                        Spacer(modifier = Modifier.width(4.dp))
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = CleanSurface
+                    )
                 )
-            )
+                // Dünne, dezente Trennlinie zwischen Menüleiste oben und Datenbereich
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = CleanOutline.copy(alpha = 0.8f)
+                )
+            }
         },
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
@@ -449,7 +502,8 @@ fun HomeScreen(
                         if (measurements.isEmpty()) {
                             Toast.makeText(context, "Keine Messdaten zum Drucken vorhanden.", Toast.LENGTH_SHORT).show()
                         } else {
-                            selectedPrintMonthKey = groupedMonths.firstOrNull()?.key ?: ""
+                            selectedPrintMonthKey = groupedMonths.firstOrNull { it.measurements.isNotEmpty() }?.key
+                                ?: groupedMonths.firstOrNull()?.key ?: ""
                             showPrintMonthDialog = true
                         }
                     },
@@ -817,8 +871,34 @@ fun HomeScreen(
             }
 
             // Scrollable Measurement Cards grouped by month
+            val currentMonthGroup = groupedMonths.firstOrNull { it.isCurrentMonth } ?: groupedMonths.first()
+            val previousMonthGroups = groupedMonths.filter { it != currentMonthGroup && it.measurements.isNotEmpty() }
+
             if (measurements.isEmpty()) {
-                item {
+                item(key = "header_group_${currentMonthGroup.key}") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "AKTUELLER MONAT • ${currentMonthGroup.monthYearLabel.uppercase()}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CleanPrimary,
+                            letterSpacing = 0.8.sp
+                        )
+                        Text(
+                            text = "0 Messungen",
+                            fontSize = 11.sp,
+                            color = CleanMutedText
+                        )
+                    }
+                }
+
+                item(key = "empty_global_state") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -860,10 +940,8 @@ fun HomeScreen(
                         }
                     }
                 }
-            } else if (groupedMonths.isNotEmpty()) {
-                // Jetziger / Aktueller Monat: Messwerte direkt anzeigen
-                val currentMonthGroup = groupedMonths.first()
-
+            } else {
+                // Aktueller Kalendermonat: Header oben
                 item(key = "header_group_${currentMonthGroup.key}") {
                     Row(
                         modifier = Modifier
@@ -887,20 +965,53 @@ fun HomeScreen(
                     }
                 }
 
-                items(
-                    items = currentMonthGroup.measurements,
-                    key = { it.id }
-                ) { item ->
-                    MeasurementCard(
-                        measurement = item,
-                        systoleNormMax = settings.systoleNormMax,
-                        diastoleNormMax = settings.diastoleNormMax,
-                        onDeleteClick = { viewModel.deleteMeasurement(it) }
-                    )
+                if (currentMonthGroup.measurements.isEmpty()) {
+                    // Neuer Monat hat begonnen, aber noch keine Messwerte im aktuellen Monat
+                    item(key = "empty_month_card_${currentMonthGroup.key}") {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = CleanSurfaceVariant,
+                            border = BorderStroke(1.dp, CleanOutline)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = CleanPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Noch keine Messungen im ${currentMonthGroup.monthYearLabel} erfasst.",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = CleanOnSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(
+                        items = currentMonthGroup.measurements,
+                        key = { it.id }
+                    ) { item ->
+                        MeasurementCard(
+                            measurement = item,
+                            systoleNormMax = settings.systoleNormMax,
+                            diastoleNormMax = settings.diastoleNormMax,
+                            onDeleteClick = { viewModel.deleteMeasurement(it) }
+                        )
+                    }
                 }
 
-                // Vorherige Monate: Jeweils hinter eigenem Monatsbutton mit Jahresanzeige
-                groupedMonths.drop(1).forEach { prevGroup ->
+                // Vorherige Monate (z. B. vorheriger aktueller Monat & frühere Monate) hinter Aufklapp-Button
+                previousMonthGroups.forEach { prevGroup ->
                     val isExpanded = expandedMonthKeys.contains(prevGroup.key)
 
                     item(key = "btn_accordion_${prevGroup.key}") {
@@ -1080,8 +1191,15 @@ fun HomeScreen(
                             fontSize = 18.sp,
                             color = CleanOnSurface
                         )
+                        val patientDisplayName = settings.patientName.ifBlank { settings.activePerson.name }
+                        val birthDate = settings.activePerson.birthDate.trim()
+                        val age = calculateAgeYears(birthDate)
                         Text(
-                            text = "Patient: ${settings.patientName.ifBlank { settings.activePerson.name }}",
+                            text = if (birthDate.isNotBlank()) {
+                                if (age != null) "Patient: $patientDisplayName (geb. $birthDate, $age Jahre)" else "Patient: $patientDisplayName (geb. $birthDate)"
+                            } else {
+                                "Patient: $patientDisplayName"
+                            },
                             fontSize = 12.sp,
                             color = CleanPrimary,
                             fontWeight = FontWeight.Medium
@@ -1235,104 +1353,175 @@ fun HomeScreen(
         }, 150)
     }
 
-    // Automatische Sicherung beim Beenden der App mit Statusmeldung
+    // Automatische Sicherung beim Beenden der App mit Statusmeldung (Zentriert und mit Abstand zu den Bildschirmrändern)
     if (isExitBackupInProgress) {
-        AlertDialog(
+        Dialog(
             onDismissRequest = {
-                if (exitBackupSuccess == true) {
-                    terminateApp()
-                } else if (exitBackupSuccess == false) {
-                    isExitBackupInProgress = false
-                }
+                isExitBackupInProgress = false
             },
-            icon = {
-                when (exitBackupSuccess) {
-                    true -> Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = CleanNormText,
-                        modifier = Modifier.size(40.dp)
-                    )
-                    false -> Icon(
-                        imageVector = Icons.Default.ErrorOutline,
-                        contentDescription = null,
-                        tint = Color(0xFFDC2626),
-                        modifier = Modifier.size(40.dp)
-                    )
-                    null -> CircularProgressIndicator(
-                        modifier = Modifier.size(36.dp),
-                        color = CleanPrimary,
-                        strokeWidth = 3.5.dp
-                    )
-                }
-            },
-            title = {
-                Text(
-                    text = when (exitBackupSuccess) {
-                        true -> "Erfolgreich gesichert"
-                        false -> "Sicherung fehlgeschlagen"
-                        null -> "Sichern & Beenden"
-                    },
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = CleanOnSurface
-                )
-            },
-            text = {
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .widthIn(max = 350.dp)
+                    .wrapContentHeight()
+                    .padding(vertical = 20.dp)
+                    .testTag("dialog_exit_backup"),
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(containerColor = CleanSurface),
+                border = BorderStroke(1.dp, CleanOutline),
+                elevation = CardDefaults.cardElevation(10.dp)
+            ) {
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // Icon
+                    when (exitBackupSuccess) {
+                        true -> Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(CleanNormContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = CleanNormText,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                        false -> Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(CleanAlertContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ErrorOutline,
+                                contentDescription = null,
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                        null -> Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(CleanPrimary.copy(alpha = 0.1f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp),
+                                color = CleanPrimary,
+                                strokeWidth = 3.5.dp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Title
+                    Text(
+                        text = when (exitBackupSuccess) {
+                            true -> "Erfolgreich gesichert"
+                            false -> "Sicherung fehlgeschlagen"
+                            null -> "Sichern & Beenden"
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = CleanOnSurface,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Status Message
                     Text(
                         text = exitBackupStatusText,
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = CleanOnSurfaceVariant,
-                        lineHeight = 19.sp
+                        lineHeight = 19.sp,
+                        textAlign = TextAlign.Center
                     )
+
                     if (exitBackupSuccess == null) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = "Sicherung wird durchgeführt...",
                             fontSize = 11.5.sp,
-                            color = CleanMutedText
+                            color = CleanMutedText,
+                            textAlign = TextAlign.Center
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = { isExitBackupInProgress = false },
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, CleanOutline),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .testTag("btn_exit_backup_cancel_loading")
+                        ) {
+                            Text(
+                                text = "Abbrechen",
+                                fontSize = 13.sp,
+                                color = CleanOnSurfaceVariant
+                            )
+                        }
+                    }
+
+                    if (exitBackupSuccess != null) {
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { isExitBackupInProgress = false },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, CleanOutline),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("btn_exit_backup_cancel")
+                            ) {
+                                Text(
+                                    text = "Abbrechen",
+                                    fontSize = 13.sp,
+                                    color = CleanOnSurfaceVariant
+                                )
+                            }
+
+                            Button(
+                                onClick = { terminateApp() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (exitBackupSuccess == true) CleanPrimary else Color(0xFFDC2626)
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("btn_exit_backup_ok")
+                            ) {
+                                Text(
+                                    text = "Beenden",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                     }
                 }
-            },
-            confirmButton = {
-                if (exitBackupSuccess == true) {
-                    Button(
-                        onClick = { terminateApp() },
-                        colors = ButtonDefaults.buttonColors(containerColor = CleanPrimary),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.testTag("btn_exit_backup_ok")
-                    ) {
-                        Text("OK", fontWeight = FontWeight.Bold)
-                    }
-                } else if (exitBackupSuccess == false) {
-                    Button(
-                        onClick = { terminateApp() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Trotzdem beenden", fontWeight = FontWeight.Bold)
-                    }
-                }
-            },
-            dismissButton = {
-                if (exitBackupSuccess == false) {
-                    TextButton(
-                        onClick = { isExitBackupInProgress = false },
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Abbrechen", color = CleanOnSurfaceVariant)
-                    }
-                }
-            },
-            shape = RoundedCornerShape(20.dp),
-            containerColor = CleanSurface
-        )
+            }
+        }
     }
 }
 
@@ -1341,7 +1530,8 @@ private data class MonthGroup(
     val year: Int,
     val month: Int,
     val monthYearLabel: String,
-    val measurements: List<com.example.data.model.BpMeasurement>
+    val measurements: List<com.example.data.model.BpMeasurement>,
+    val isCurrentMonth: Boolean = false
 )
 
 

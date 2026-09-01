@@ -308,26 +308,6 @@ fun BleDiagnoseDialog(
                             )
                         }
 
-                        FilledTonalButton(
-                            onClick = {
-                                viewModel.sendManualEraseMemory()
-                            },
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = Color(0xFFEF4444).copy(alpha = 0.15f),
-                                contentColor = Color(0xFFDC2626)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier
-                                .height(34.dp)
-                                .testTag("btn_manual_erase_memory")
-                        ) {
-                            Text(
-                                text = "🗑️ Speicher löschen",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
                         Button(
                             onClick = {
                                 viewModel.startBleScan()

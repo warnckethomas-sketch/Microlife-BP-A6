@@ -23,6 +23,7 @@ import android.util.Log
 import android.widget.Toast
 import com.example.data.model.BpMeasurement
 import com.example.data.repository.UserSettings
+import com.example.ui.components.calculateAgeYears
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -303,7 +304,14 @@ object PdfExporter {
         paint.textSize = 9f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         val displayName = settings.patientName.ifBlank { settings.activePerson.name }
-        canvas.drawText("Patient: $displayName", MARGIN + 10f, currentY + 14f, paint)
+        val birthDateStr = settings.activePerson.birthDate.trim()
+        val age = calculateAgeYears(birthDateStr)
+        val patientText = if (birthDateStr.isNotBlank()) {
+            if (age != null) "Patient: $displayName (geb. $birthDateStr, $age Jahre)" else "Patient: $displayName (geb. $birthDateStr)"
+        } else {
+            "Patient: $displayName"
+        }
+        canvas.drawText(patientText, MARGIN + 10f, currentY + 14f, paint)
 
         paint.textSize = 7.5f
         paint.typeface = Typeface.DEFAULT
@@ -637,7 +645,14 @@ object PdfExporter {
         paint.textSize = 8f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         val displayName = settings.patientName.ifBlank { settings.activePerson.name }
-        canvas.drawText("Patient: $displayName", MARGIN + 8f, currentY + 15f, paint)
+        val birthDateStr = settings.activePerson.birthDate.trim()
+        val age = calculateAgeYears(birthDateStr)
+        val patientText = if (birthDateStr.isNotBlank()) {
+            if (age != null) "Patient: $displayName (geb. $birthDateStr, $age Jahre)" else "Patient: $displayName (geb. $birthDateStr)"
+        } else {
+            "Patient: $displayName"
+        }
+        canvas.drawText(patientText, MARGIN + 8f, currentY + 15f, paint)
 
         paint.typeface = Typeface.DEFAULT
         paint.color = Color.rgb(71, 85, 105)

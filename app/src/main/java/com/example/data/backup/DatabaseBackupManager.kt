@@ -182,6 +182,7 @@ object DatabaseBackupManager {
             put("diastoleNormMax", settings.person1.diastoleNormMax)
             put("deviceAddress", settings.person1.deviceAddress)
             put("measurementsPerDay", settings.person1.measurementsPerDay)
+            put("birthDate", settings.person1.birthDate)
         }
         personsArray.put(p1Obj)
 
@@ -192,6 +193,7 @@ object DatabaseBackupManager {
             put("diastoleNormMax", settings.person2.diastoleNormMax)
             put("deviceAddress", settings.person2.deviceAddress)
             put("measurementsPerDay", settings.person2.measurementsPerDay)
+            put("birthDate", settings.person2.birthDate)
         }
         personsArray.put(p2Obj)
 
@@ -474,7 +476,8 @@ object DatabaseBackupManager {
                             systoleNormMax = pObj.optInt("systoleNormMax", restoredP1.systoleNormMax),
                             diastoleNormMax = pObj.optInt("diastoleNormMax", restoredP1.diastoleNormMax),
                             deviceAddress = pObj.optString("deviceAddress", restoredP1.deviceAddress),
-                            measurementsPerDay = pObj.optInt("measurementsPerDay", restoredP1.measurementsPerDay)
+                            measurementsPerDay = pObj.optInt("measurementsPerDay", restoredP1.measurementsPerDay),
+                            birthDate = pObj.optString("birthDate", restoredP1.birthDate)
                         )
                     } else if (uIdx == 2) {
                         restoredP2 = restoredP2.copy(
@@ -482,7 +485,8 @@ object DatabaseBackupManager {
                             systoleNormMax = pObj.optInt("systoleNormMax", restoredP2.systoleNormMax),
                             diastoleNormMax = pObj.optInt("diastoleNormMax", restoredP2.diastoleNormMax),
                             deviceAddress = pObj.optString("deviceAddress", restoredP2.deviceAddress),
-                            measurementsPerDay = pObj.optInt("measurementsPerDay", restoredP2.measurementsPerDay)
+                            measurementsPerDay = pObj.optInt("measurementsPerDay", restoredP2.measurementsPerDay),
+                            birthDate = pObj.optString("birthDate", restoredP2.birthDate)
                         )
                     }
                 }
@@ -495,7 +499,8 @@ object DatabaseBackupManager {
                         systoleNormMax = p1Obj.optInt("systoleNormMax", restoredP1.systoleNormMax),
                         diastoleNormMax = p1Obj.optInt("diastoleNormMax", restoredP1.diastoleNormMax),
                         deviceAddress = p1Obj.optString("deviceAddress", restoredP1.deviceAddress),
-                        measurementsPerDay = p1Obj.optInt("measurementsPerDay", restoredP1.measurementsPerDay)
+                        measurementsPerDay = p1Obj.optInt("measurementsPerDay", restoredP1.measurementsPerDay),
+                        birthDate = p1Obj.optString("birthDate", restoredP1.birthDate)
                     )
                 }
                 if (sObj.has("person2")) {
@@ -505,7 +510,8 @@ object DatabaseBackupManager {
                         systoleNormMax = p2Obj.optInt("systoleNormMax", restoredP2.systoleNormMax),
                         diastoleNormMax = p2Obj.optInt("diastoleNormMax", restoredP2.diastoleNormMax),
                         deviceAddress = p2Obj.optString("deviceAddress", restoredP2.deviceAddress),
-                        measurementsPerDay = p2Obj.optInt("measurementsPerDay", restoredP2.measurementsPerDay)
+                        measurementsPerDay = p2Obj.optInt("measurementsPerDay", restoredP2.measurementsPerDay),
+                        birthDate = p2Obj.optString("birthDate", restoredP2.birthDate)
                     )
                 }
             }

@@ -20,13 +20,14 @@ data class PersonProfile(
     val systoleNormMax: Int = 135,
     val diastoleNormMax: Int = 85,
     val deviceAddress: String = "", // Paired BLE Device MAC / Name
-    val measurementsPerDay: Int = 2 // Geplante Messungen pro Tag (z.B. 2x, 3x, 4x)
+    val measurementsPerDay: Int = 2, // Geplante Messungen pro Tag (z.B. 2x, 3x, 4x)
+    val birthDate: String = "" // Geburtsdatum z.B. "15.04.1958"
 )
 
 data class UserSettings(
     val selectedUserIndex: Int = 1,
-    val person1: PersonProfile = PersonProfile(1, "Person 1 (Maria)", 135, 85, "", 2),
-    val person2: PersonProfile = PersonProfile(2, "Person 2 (Thomas)", 140, 90, "", 2),
+    val person1: PersonProfile = PersonProfile(1, "Person 1 (Maria)", 135, 85, "", 2, ""),
+    val person2: PersonProfile = PersonProfile(2, "Person 2 (Thomas)", 140, 90, "", 2, ""),
     val autoEraseAfterSync: Boolean = true,
     val use12HourTimeFormat: Boolean = false,
     val autoBackupEnabled: Boolean = true,
@@ -75,6 +76,9 @@ class BpRepository(
         // Asynchron aus Room-Datenbank laden bzw. initiale Profile in DB absichern
         repositoryScope.launch {
             try {
+                // Bereinige fehlerhafte Zukunftsmessungen aus vorherigen Fehlern
+                purgeFutureMeasurements()
+
                 val dbProfiles = bpDao.getAllPersonProfiles()
                 val dbSettings = bpDao.getAppSettings()
 
@@ -125,12 +129,14 @@ class BpRepository(
         val p1Dia = prefs.getInt("p1_dia_norm", 85)
         val p1Device = prefs.getString("p1_device", "") ?: ""
         val p1DailyTarget = prefs.getInt("p1_measurements_per_day", 2)
+        val p1BirthDate = prefs.getString("p1_birth_date", "") ?: ""
 
         val p2Name = prefs.getString("p2_name", "Person 2 (Thomas)") ?: "Person 2 (Thomas)"
         val p2Sys = prefs.getInt("p2_sys_norm", 140)
         val p2Dia = prefs.getInt("p2_dia_norm", 90)
         val p2Device = prefs.getString("p2_device", "") ?: ""
         val p2DailyTarget = prefs.getInt("p2_measurements_per_day", 2)
+        val p2BirthDate = prefs.getString("p2_birth_date", "") ?: ""
 
         val autoErase = prefs.getBoolean("auto_erase", true)
         val use12Hour = prefs.getBoolean("use_12_hour_format", false)
@@ -145,8 +151,8 @@ class BpRepository(
 
         return UserSettings(
             selectedUserIndex = selectedUser,
-            person1 = PersonProfile(1, p1Name, p1Sys, p1Dia, p1Device, p1DailyTarget),
-            person2 = PersonProfile(2, p2Name, p2Sys, p2Dia, p2Device, p2DailyTarget),
+            person1 = PersonProfile(1, p1Name, p1Sys, p1Dia, p1Device, p1DailyTarget, p1BirthDate),
+            person2 = PersonProfile(2, p2Name, p2Sys, p2Dia, p2Device, p2DailyTarget, p2BirthDate),
             autoEraseAfterSync = autoErase,
             use12HourTimeFormat = use12Hour,
             autoBackupEnabled = autoBackup,
@@ -166,11 +172,13 @@ class BpRepository(
             .putInt("p1_dia_norm", newSettings.person1.diastoleNormMax)
             .putString("p1_device", newSettings.person1.deviceAddress)
             .putInt("p1_measurements_per_day", newSettings.person1.measurementsPerDay)
+            .putString("p1_birth_date", newSettings.person1.birthDate)
             .putString("p2_name", newSettings.person2.name)
             .putInt("p2_sys_norm", newSettings.person2.systoleNormMax)
             .putInt("p2_dia_norm", newSettings.person2.diastoleNormMax)
             .putString("p2_device", newSettings.person2.deviceAddress)
             .putInt("p2_measurements_per_day", newSettings.person2.measurementsPerDay)
+            .putString("p2_birth_date", newSettings.person2.birthDate)
             .putBoolean("auto_erase", newSettings.autoEraseAfterSync)
             .putBoolean("use_12_hour_format", newSettings.use12HourTimeFormat)
             .putBoolean("auto_backup_enabled", newSettings.autoBackupEnabled)
@@ -225,7 +233,14 @@ class BpRepository(
         _settings.value = _settings.value.copy(lastBackupTimestamp = timestamp)
     }
 
+    suspend fun purgeFutureMeasurements(): Int {
+        val futureLimit = System.currentTimeMillis() + 10 * 60 * 1000L // 10 Min Toleranz
+        return bpDao.deleteFutureMeasurements(futureLimit)
+    }
+
     suspend fun insertMeasurement(measurement: BpMeasurement): Long {
+        // Bereinige etwaige fehlerhafte Zukunftsmessungen
+        purgeFutureMeasurements()
         val existing = bpDao.getAllMeasurementsList()
         val isDuplicate = existing.any { oldM ->
             oldM.userIndex == measurement.userIndex &&
@@ -241,6 +256,8 @@ class BpRepository(
     }
 
     suspend fun insertMeasurements(measurements: List<BpMeasurement>): Int {
+        // Bereinige etwaige fehlerhafte Zukunftsmessungen
+        purgeFutureMeasurements()
         val existing = bpDao.getAllMeasurementsList()
         val toInsert = measurements.filter { newM ->
             val isDuplicate = existing.any { oldM ->

@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.Cake
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ExpandLess
@@ -56,6 +58,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -124,6 +127,7 @@ fun SettingsDialog(
     var p1SysText by remember { mutableStateOf(currentSettings.person1.systoleNormMax.toString()) }
     var p1DiaText by remember { mutableStateOf(currentSettings.person1.diastoleNormMax.toString()) }
     var p1MeasurementsPerDayText by remember { mutableStateOf(currentSettings.person1.measurementsPerDay.toString()) }
+    var p1BirthDate by remember { mutableStateOf(currentSettings.person1.birthDate) }
     var p1Device by remember { mutableStateOf(currentSettings.person1.deviceAddress) }
 
     // Person 2 State
@@ -131,6 +135,7 @@ fun SettingsDialog(
     var p2SysText by remember { mutableStateOf(currentSettings.person2.systoleNormMax.toString()) }
     var p2DiaText by remember { mutableStateOf(currentSettings.person2.diastoleNormMax.toString()) }
     var p2MeasurementsPerDayText by remember { mutableStateOf(currentSettings.person2.measurementsPerDay.toString()) }
+    var p2BirthDate by remember { mutableStateOf(currentSettings.person2.birthDate) }
     var p2Device by remember { mutableStateOf(currentSettings.person2.deviceAddress) }
 
     // Options State
@@ -154,12 +159,14 @@ fun SettingsDialog(
         p1SysText = currentSettings.person1.systoleNormMax.toString()
         p1DiaText = currentSettings.person1.diastoleNormMax.toString()
         p1MeasurementsPerDayText = currentSettings.person1.measurementsPerDay.toString()
+        p1BirthDate = currentSettings.person1.birthDate
         p1Device = currentSettings.person1.deviceAddress
 
         p2Name = currentSettings.person2.name
         p2SysText = currentSettings.person2.systoleNormMax.toString()
         p2DiaText = currentSettings.person2.diastoleNormMax.toString()
         p2MeasurementsPerDayText = currentSettings.person2.measurementsPerDay.toString()
+        p2BirthDate = currentSettings.person2.birthDate
         p2Device = currentSettings.person2.deviceAddress
 
         autoErase = currentSettings.autoEraseAfterSync
@@ -211,6 +218,9 @@ fun SettingsDialog(
 
     // Active BLE Scan target: 1 for Person 1, 2 for Person 2, null if scan dialog is closed
     var scanTargetPersonIndex by remember { mutableStateOf<Int?>(null) }
+
+    // Birth Date Picker Dialog target: 1 for Person 1, 2 for Person 2, null if closed
+    var birthDatePickerTargetUser by remember { mutableStateOf<Int?>(null) }
 
     // High contrast dark text styling for 100% legibility in setup area
     val darkTextColor = Color(0xFF101418)
@@ -415,6 +425,40 @@ fun SettingsDialog(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("input_p1_name")
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Geburtsdatum für Person 1 mit Kalender-Dialog
+                                val p1Age = calculateAgeYears(p1BirthDate)
+                                OutlinedTextField(
+                                    value = if (p1BirthDate.isNotBlank()) {
+                                        if (p1Age != null) "$p1BirthDate ($p1Age J.)" else p1BirthDate
+                                    } else "",
+                                    onValueChange = { },
+                                    readOnly = true,
+                                    label = { Text("Geburtsdatum Person 1", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                    placeholder = { Text("TT.MM.JJJJ (Tippen zur Auswahl)", color = darkMutedColor, fontSize = 12.sp) },
+                                    leadingIcon = { Icon(Icons.Default.Cake, contentDescription = null, tint = CleanPrimary) },
+                                    trailingIcon = {
+                                        IconButton(
+                                            onClick = { birthDatePickerTargetUser = 1 },
+                                            modifier = Modifier.testTag("btn_pick_birthdate_p1")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CalendarMonth,
+                                                contentDescription = "Geburtsdatum auswählen",
+                                                tint = CleanPrimary
+                                            )
+                                        }
+                                    },
+                                    singleLine = true,
+                                    textStyle = boldDarkInputTextStyle,
+                                    colors = darkTextFieldColors,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { birthDatePickerTargetUser = 1 }
+                                        .testTag("input_p1_birthdate")
                                 )
 
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -689,6 +733,40 @@ fun SettingsDialog(
 
                                 Spacer(modifier = Modifier.height(8.dp))
 
+                                // Geburtsdatum für Person 2 mit Kalender-Dialog
+                                val p2Age = calculateAgeYears(p2BirthDate)
+                                OutlinedTextField(
+                                    value = if (p2BirthDate.isNotBlank()) {
+                                        if (p2Age != null) "$p2BirthDate ($p2Age J.)" else p2BirthDate
+                                    } else "",
+                                    onValueChange = { },
+                                    readOnly = true,
+                                    label = { Text("Geburtsdatum Person 2", color = darkLabelColor, fontWeight = FontWeight.Bold) },
+                                    placeholder = { Text("TT.MM.JJJJ (Tippen zur Auswahl)", color = darkMutedColor, fontSize = 12.sp) },
+                                    leadingIcon = { Icon(Icons.Default.Cake, contentDescription = null, tint = CleanOnSurfaceVariant) },
+                                    trailingIcon = {
+                                        IconButton(
+                                            onClick = { birthDatePickerTargetUser = 2 },
+                                            modifier = Modifier.testTag("btn_pick_birthdate_p2")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CalendarMonth,
+                                                contentDescription = "Geburtsdatum auswählen",
+                                                tint = CleanOnSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    singleLine = true,
+                                    textStyle = boldDarkInputTextStyle,
+                                    colors = darkTextFieldColors,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { birthDatePickerTargetUser = 2 }
+                                        .testTag("input_p2_birthdate")
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
                                 Row(modifier = Modifier.fillMaxWidth()) {
                                     OutlinedTextField(
                                         value = p2SysText,
@@ -928,33 +1006,6 @@ fun SettingsDialog(
                                     .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
                             ) {
                                 HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Automatisches Speicher-Löschen",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = darkTextColor
-                                        )
-                                        Text(
-                                            text = "Sendet nach Daten-Download MCLR-Löschbefehl an das Gerät.",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = darkMutedColor
-                                        )
-                                    }
-                                    Switch(
-                                        checked = autoErase,
-                                        onCheckedChange = { autoErase = it },
-                                        modifier = Modifier.testTag("switch_auto_erase")
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(12.dp))
 
                                 Text(
                                     text = "Diagramm-Skala (Maximalwert):",
@@ -1483,14 +1534,16 @@ fun SettingsDialog(
                                 systoleNormMax = p1Sys,
                                 diastoleNormMax = p1Dia,
                                 deviceAddress = p1Device.trim(),
-                                measurementsPerDay = p1Daily
+                                measurementsPerDay = p1Daily,
+                                birthDate = p1BirthDate.trim()
                             ),
                             person2 = currentSettings.person2.copy(
                                 name = p2Name.trim().ifBlank { "Person 2" },
                                 systoleNormMax = p2Sys,
                                 diastoleNormMax = p2Dia,
                                 deviceAddress = p2Device.trim(),
-                                measurementsPerDay = p2Daily
+                                measurementsPerDay = p2Daily,
+                                birthDate = p2BirthDate.trim()
                             ),
                             autoEraseAfterSync = autoErase,
                             use12HourTimeFormat = use12Hour,
@@ -1767,6 +1820,26 @@ fun SettingsDialog(
                     Text("Schließen", fontWeight = FontWeight.Bold, color = darkTextColor)
                 }
             }
+        )
+    }
+
+    // ================= INTERACTIVE BIRTH DATE PICKER DIALOG =================
+    if (birthDatePickerTargetUser != null) {
+        val targetUser = birthDatePickerTargetUser!!
+        val initialDate = if (targetUser == 1) p1BirthDate else p2BirthDate
+        val personName = if (targetUser == 1) p1Name.ifBlank { "Person 1" } else p2Name.ifBlank { "Person 2" }
+
+        BirthDatePickerDialog(
+            initialDate = initialDate,
+            personName = personName,
+            onDateSelected = { newDate ->
+                if (targetUser == 1) {
+                    p1BirthDate = newDate
+                } else {
+                    p2BirthDate = newDate
+                }
+            },
+            onDismiss = { birthDatePickerTargetUser = null }
         )
     }
 }

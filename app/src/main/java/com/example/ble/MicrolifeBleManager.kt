@@ -150,7 +150,6 @@ class MicrolifeBleManager(private val context: Context) {
     private val dataBuffer = ByteArrayOutputStream()
     private var expectedTotalSize = 0
     private val receivedBatch = mutableListOf<BpMeasurement>()
-    private var isOnlyEraseMode = false
     private var isDataDownloadCompleted = false
     private var isErasingOrFinishing = false
 
@@ -461,7 +460,6 @@ class MicrolifeBleManager(private val context: Context) {
         }
     }
 
-    private var autoEraseMemoryOnSync: Boolean = false
     private var is12HourTimeFormat: Boolean = false
     private var isOnlyTimeSyncMode: Boolean = false
     private var isOnlyReadTimeMode: Boolean = false
@@ -471,19 +469,15 @@ class MicrolifeBleManager(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun connectToDevice(
         address: String,
-        autoErase: Boolean = false,
         is12HourFormat: Boolean = false,
         onlyTimeSync: Boolean = false,
-        onlyReadTime: Boolean = false,
-        onlyErase: Boolean = false
+        onlyReadTime: Boolean = false
     ) {
-        this.autoEraseMemoryOnSync = autoErase
         this.is12HourTimeFormat = is12HourFormat
         this.isOnlyTimeSyncMode = onlyTimeSync
         this.isOnlyReadTimeMode = onlyReadTime
-        this.isOnlyEraseMode = onlyErase
-        this.isDataDownloadCompleted = onlyErase
-        this.isErasingOrFinishing = onlyErase
+        this.isDataDownloadCompleted = false
+        this.isErasingOrFinishing = false
         this.measurementRequested = false
         this.timeSyncAckSent = false
         stopScan()
@@ -494,10 +488,9 @@ class MicrolifeBleManager(private val context: Context) {
         currentState = BleState.IDLE
 
         val modeStr = when {
-            onlyErase -> " (Reines Speicherlöschen)"
             onlyTimeSync -> " (Reine Uhrzeit-Einstellung)"
             onlyReadTime -> " (Reine Uhrzeit-Auslesung)"
-            else -> " (Speicherlöschung: $autoErase)"
+            else -> " (Messdaten-Download / Ringspeicher)"
         }
         logDiagnose("Verbindungsaufbau initiiert zu MAC-Adresse: $address$modeStr")
 
@@ -783,7 +776,7 @@ class MicrolifeBleManager(private val context: Context) {
             logDiagnose("\n=== GATT-ANALYSE VOLLSTÄNDIG ===")
             logDiagnose("Fahre mit der automatisierten Protokollkette fort...\n")
 
-            // Schritt 3 in die Warteschlange: Notifications aktivieren
+            // Normaler Modus (Messungen auslesen oder Uhrzeit einstellen): Schritt 3 in die Warteschlange
             queueOperation {
                 logDiagnose("▶ SCHRITT 3: Aktiviere Benachrichtigungen (CCCD Descriptor)...")
                 enableNotifications(gatt)
@@ -869,20 +862,7 @@ class MicrolifeBleManager(private val context: Context) {
                 return
             }
 
-            // Fall 3: Reiner Speicherlösch-Modus
-            if (isOnlyEraseMode) {
-                logDiagnose("▶ Reiner Speicherlösch-Modus: Sende vollständige Löschsequenz an das Gerät...")
-                scope.launch {
-                    sendEraseMemorySequence(gatt)
-                    delay(1200)
-                    logDiagnose("✓ Speicherlöschung erfolgreich abgeschlossen.")
-                    _syncStatus.value = BleSyncStatus.Success(0)
-                    disconnect()
-                }
-                return
-            }
-
-            // Fall 4: Normaler Messdaten-Download (Reiner Datenstrom ohne Uhrzeitbefehl)
+            // Fall 3: Normaler Messdaten-Download (Reiner Datenstrom ohne Uhrzeitbefehl)
             logDiagnose("▶ Stream-Kanal bereit. Fordere Messdaten direkt vom Aponorm Gerät an (reiner Datenstrom)...")
             _syncStatus.value = BleSyncStatus.Downloading(0, 1)
             sendPacket(gatt, CMD_GET_MEASUREMENTS, writeNoResponse = true)
@@ -1784,7 +1764,7 @@ class MicrolifeBleManager(private val context: Context) {
             sendReadDeviceTime(bluetoothGatt)
         } else if (!targetAddress.isNullOrBlank()) {
             logDiagnose("▶ Baue Verbindung zu $targetAddress auf, um Geräte-Uhrzeit auszulesen...")
-            connectToDevice(targetAddress, autoErase = false, is12HourFormat = this.is12HourTimeFormat, onlyReadTime = true)
+            connectToDevice(targetAddress, is12HourFormat = this.is12HourTimeFormat, onlyReadTime = true)
         } else {
             logDiagnose("⚠️ Keine Verbindung und keine Geräte-Adresse. Bitte zuerst 'Auslesen starten' tippen oder Gerät in Einstellungen wählen.")
         }
@@ -1872,121 +1852,9 @@ class MicrolifeBleManager(private val context: Context) {
             sendTimeSynchronization(bluetoothGatt)
         } else if (!targetAddress.isNullOrBlank()) {
             logDiagnose("▶ Baue Bluetooth-Verbindung zu $targetAddress für Uhrzeit-Einstellung auf...")
-            connectToDevice(targetAddress, autoErase = false, is12HourFormat = is12HourFormat, onlyTimeSync = true)
+            connectToDevice(targetAddress, is12HourFormat = is12HourFormat, onlyTimeSync = true)
         } else {
             logDiagnose("⚠️ Keine aktive GATT-Verbindung und kein Gerät konfiguriert. Bitte zuerst 'Auslesen starten' tippen oder ein Gerät in den Einstellungen wählen.")
-        }
-    }
-
-    /**
-     * Erstellt den echten Microlife Speicher-Löschbefehl (Opcode 0xFC im 9-Byte Format)
-     */
-    fun buildEraseMemoryCommand(headerByte: Byte = 0x31.toByte()): ByteArray {
-        val cmd = byteArrayOf(
-            0x4D.toByte(),
-            headerByte,
-            0x00.toByte(),
-            0x09.toByte(),
-            0x00.toByte(),
-            0x00.toByte(),
-            0x00.toByte(),
-            0x00.toByte(),
-            0x00.toByte(),
-            0x00.toByte(),
-            0x00.toByte(),
-            0xFC.toByte(), // 0xFC = Erase / Reset Memory
-            0.toByte()
-        )
-        var sum = 0
-        for (i in 0 until cmd.size - 1) {
-            sum += (cmd[i].toInt() and 0xFF)
-        }
-        cmd[cmd.size - 1] = (sum % 256).toByte()
-        return cmd
-    }
-
-    /**
-     * Sendet die vollständige Speicher-Löschsequenz an das Gerät:
-     * - Header 0x31 (M1 / Aponorm BP3Gu1-6B)
-     * - Header 0xFF (Microlife Default)
-     * - Header 0x3A (Microlife M: Modell)
-     * - Aponorm 6-Byte Kurzbefehl Opcode 0xFC
-     * - UART MCLR ASCII Befehl
-     * - Aponorm Opcode 0x05 Löschbefehl
-     */
-    @SuppressLint("MissingPermission")
-    suspend fun sendEraseMemorySequence(gatt: BluetoothGatt) {
-        logDiagnose("▶ SCHRITT 7: Sende vollständige Aponorm/Microlife Speicher-Löschsequenz...")
-
-        // 1. Aponorm M1 Löschbefehl (Header 0x31, Opcode 0xFC, 13 Bytes)
-        val eraseCmd31 = buildEraseMemoryCommand(headerByte = 0x31.toByte())
-        val hex31 = eraseCmd31.joinToString(" ") { "%02X".format(it) }
-        logDiagnose("   ├-- 1/6 Sende M1-Löschbefehl (Header 0x31, Opcode 0xFC): $hex31")
-        sendPacket(gatt, eraseCmd31, writeNoResponse = true)
-        delay(150)
-
-        // 2. Microlife Header 0xFF Löschbefehl (Opcode 0xFC, 13 Bytes)
-        val eraseCmdFF = buildEraseMemoryCommand(headerByte = 0xFF.toByte())
-        val hexFF = eraseCmdFF.joinToString(" ") { "%02X".format(it) }
-        logDiagnose("   ├-- 2/6 Sende Microlife Header 0xFF Löschbefehl (Opcode 0xFC): $hexFF")
-        sendPacket(gatt, eraseCmdFF, writeNoResponse = true)
-        delay(150)
-
-        // 3. Microlife Header 0x3A Löschbefehl (Opcode 0xFC, 13 Bytes)
-        val eraseCmd3A = buildEraseMemoryCommand(headerByte = 0x3A.toByte())
-        val hex3A = eraseCmd3A.joinToString(" ") { "%02X".format(it) }
-        logDiagnose("   ├-- 3/6 Sende Microlife Header 0x3A Löschbefehl (Opcode 0xFC): $hex3A")
-        sendPacket(gatt, eraseCmd3A, writeNoResponse = true)
-        delay(150)
-
-        // 4. Aponorm Kurzbefehl Opcode 0xFC (Länge 1, [0x4D, 0x31, 0x00, 0x01, 0xFC, 0x7B])
-        val shortErase = byteArrayOf(0x4D.toByte(), 0x31.toByte(), 0x00.toByte(), 0x01.toByte(), 0xFC.toByte(), 0x7B.toByte())
-        val hexShort = shortErase.joinToString(" ") { "%02X".format(it) }
-        logDiagnose("   ├-- 4/6 Sende Aponorm Kurzbefehl Opcode 0xFC: $hexShort")
-        sendPacket(gatt, shortErase, writeNoResponse = true)
-        delay(150)
-
-        // 5. MCLR ASCII Löschbefehl ("MCLR" & "MCLR\r\n")
-        val mclrBytes = byteArrayOf(0x4D.toByte(), 0x43.toByte(), 0x4C.toByte(), 0x52.toByte())
-        val mclrCrlf = byteArrayOf(0x4D.toByte(), 0x43.toByte(), 0x4C.toByte(), 0x52.toByte(), 0x0D.toByte(), 0x0A.toByte())
-        logDiagnose("   ├-- 5/6 Sende MCLR UART Löschkommando ('MCLR')")
-        sendPacket(gatt, mclrBytes, writeNoResponse = true)
-        delay(80)
-        sendPacket(gatt, mclrCrlf, writeNoResponse = true)
-        delay(150)
-
-        // 6. Opcode 0x05 Löschbefehl ([0x4D, 0x31, 0x00, 0x01, 0x05, 0x84])
-        val op05Cmd = byteArrayOf(0x4D.toByte(), 0x31.toByte(), 0x00.toByte(), 0x01.toByte(), 0x05.toByte(), 0x84.toByte())
-        val hex05 = op05Cmd.joinToString(" ") { "%02X".format(it) }
-        logDiagnose("   └-- 6/6 Sende Aponorm Opcode 0x05 Löschbefehl: $hex05")
-        sendPacket(gatt, op05Cmd, writeNoResponse = true)
-        delay(250)
-
-        logDiagnose("✓ Speicherlöschbefehle vollständig übertragen.")
-    }
-
-    /**
-     * Startet manuelles Löschen des Gerätespeichers.
-     */
-    @SuppressLint("MissingPermission")
-    fun sendManualEraseMemory(targetAddress: String? = null) {
-        this.isOnlyEraseMode = true
-        this.isDataDownloadCompleted = true
-        this.isErasingOrFinishing = true
-        if (bluetoothGatt != null && realGattConnected) {
-            logDiagnose("▶ Sende sofortige Speicher-Löschsequenz an aktive GATT-Verbindung...")
-            scope.launch {
-                sendEraseMemorySequence(bluetoothGatt!!)
-                delay(1000)
-                logDiagnose("✓ Manueller Speicher-Löschvorgang beendet.")
-                _syncStatus.value = BleSyncStatus.Success(0)
-                disconnect()
-            }
-        } else if (!targetAddress.isNullOrBlank()) {
-            logDiagnose("▶ Baue Bluetooth-Verbindung zu $targetAddress für Speicherlöschung auf...")
-            connectToDevice(targetAddress, autoErase = true, is12HourFormat = this.is12HourTimeFormat, onlyErase = true)
-        } else {
-            logDiagnose("⚠️ Keine aktive GATT-Verbindung und kein Gerät konfiguriert.")
         }
     }
 
@@ -2038,17 +1906,8 @@ class MicrolifeBleManager(private val context: Context) {
 
         val count = receivedBatch.size
         if (count > 0) {
-            if (autoEraseMemoryOnSync) {
-                isErasingOrFinishing = true
-                _syncStatus.value = BleSyncStatus.ErasingMemory
-                bluetoothGatt?.let { gatt ->
-                    sendEraseMemorySequence(gatt)
-                }
-                delay(400)
-            } else {
-                logDiagnose("ℹ️ Gerätespeicher bleibt erhalten (Löschoption deaktiviert).")
-                delay(200)
-            }
+            logDiagnose("ℹ️ Gerätespeicher bleibt erhalten (Hardware-Ringspeicher überschreibt älteste Werte automatisch).")
+            delay(200)
 
             // Nach Datum sortieren (neueste zuerst für UI)
             receivedBatch.sortByDescending { it.timestamp }
@@ -2242,93 +2101,19 @@ class MicrolifeBleManager(private val context: Context) {
         )
     }
 
-    /**
-     * Dekodiert einen echten 7-Byte Messdatensatz des Aponorm BP3Gu1-6B:
-     * [0] Systole (mmHg direkt, z.B. 120)
-     * [1] Diastole (mmHg direkt, z.B. 80)
-     * [2] Puls (bpm direkt, z.B. 72)
-     * [3] Tag (1-31, obere Bits 0xD0 / 0xC0 kennzeichnen Vormonate wie Juli)
-     * [4] Stunde (0x8x/0x4x für AM/Vormittag, 0x9x/0x5x für PM/Nachmittag -> hour24 = b4 & 0x3F)
-     * [5] Minute (0-59)
-     * [6] Jahr (2000 + YearByte, z.B. 0x1A = 26 -> 2026)
-     */
-    private fun decode7ByteRecord(record: ByteArray, offset: Int): Pair<BpMeasurement, DecodedDateTime>? {
-        if (offset + 7 > record.size) return null
-
-        val sysRaw   = record[offset].toInt() and 0xFF
-        val diaRaw   = record[offset + 1].toInt() and 0xFF
-        val pulseRaw = record[offset + 2].toInt() and 0xFF
-        val rawDayByte = record[offset + 3].toInt() and 0xFF
-        val b4       = record[offset + 4].toInt() and 0xFF
-        val minRaw   = record[offset + 5].toInt() and 0xFF
-        val yearRaw  = record[offset + 6].toInt() and 0xFF
-
-        // Plausibilitätsfilter für echte Blutdruckwerte (Verhindert Fake- oder Null-Daten)
-        if (sysRaw !in 50..260 || diaRaw !in 30..180 || pulseRaw !in 30..240) return null
-        // Physiologische Plausibilität: Systole muss mindestens 15 mmHg höher sein als Diastole
-        if (sysRaw <= diaRaw + 15) return null
-        if (minRaw !in 0..59) return null
-
-        val yearVal = yearRaw and 0x3F
-        val year = if (yearVal in 1..99) 2000 + yearVal else return null
-        if (year !in 2020..2030) return null
-
-        // Tag und Monat auslesen:
-        // 0xD0..0xDF / 0xC0..0xCF kennzeichnen Einträge aus dem Vormonat (z.B. Juli)
-        val isPrevMonth = rawDayByte >= 0xC0
-        val day = if (isPrevMonth) (rawDayByte and 0x1F) else rawDayByte
-        if (day !in 1..31) return null
-
-        val currentMonth = Calendar.getInstance().get(Calendar.MONTH) + 1
-        val effMonth = if (isPrevMonth) {
-            if (currentMonth == 1) 12 else currentMonth - 1
-        } else {
-            currentMonth
-        }
-
-        // Stunde: Bei Microlife BP3Gu1-6B liefert (b4 and 0x3F) den 24h-Wert
-        val hour24 = (b4 and 0x3F).let { if (it in 0..23) it else (b4 and 0x1F) }
-        if (hour24 !in 0..23) return null
-
-        val isPm = hour24 >= 12
-        val hour12 = when {
-            hour24 == 0 -> 12
-            hour24 > 12 -> hour24 - 12
-            else -> hour24
-        }
-
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, effMonth - 1)
-            set(Calendar.DAY_OF_MONTH, day)
-            set(Calendar.HOUR_OF_DAY, hour24)
-            set(Calendar.MINUTE, minRaw)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-
-        val dt = DecodedDateTime(
-            year = year,
-            month = effMonth,
-            day = day,
-            hour24 = hour24,
-            minute = minRaw,
-            isPm = isPm,
-            hour12 = hour12,
-            timestamp = cal.timeInMillis
-        )
-
-        val measurement = BpMeasurement(
-            timestamp = dt.timestamp,
-            systole = sysRaw,
-            diastole = diaRaw,
-            pulse = pulseRaw,
-            afibDetected = false,
-            notes = "aponorm® / Microlife Messung"
-        )
-
-        return Pair(measurement, dt)
-    }
+    private data class Raw7ByteRecord(
+        val offset: Int,
+        val sys: Int,
+        val dia: Int,
+        val pulse: Int,
+        val rawDayByte: Int,
+        val day: Int,
+        val rawHourByte: Int,
+        val hour24: Int,
+        val min: Int,
+        val rawYearByte: Int,
+        val year: Int
+    )
 
     private fun parseAponormDataStream(rawData: ByteArray, totalLength: Int) {
         if (totalLength < 7) {
@@ -2341,35 +2126,214 @@ class MicrolifeBleManager(private val context: Context) {
         }
 
         logDiagnose("📊 Scanne $totalLength Gerätedaten-Bytes nach allen echten 7-Byte Aponorm-Messsätzen...")
+
+        // 1. Alle plausiblen 7-Byte Rohdaten extrahieren
+        val rawRecords = mutableListOf<Raw7ByteRecord>()
+        var i = 0
+        while (i <= totalLength - 7) {
+            val sysRaw   = rawData[i].toInt() and 0xFF
+            val diaRaw   = rawData[i + 1].toInt() and 0xFF
+            val pulseRaw = rawData[i + 2].toInt() and 0xFF
+            val rawDay   = rawData[i + 3].toInt() and 0xFF
+            val b4       = rawData[i + 4].toInt() and 0xFF
+            val minRaw   = rawData[i + 5].toInt() and 0xFF
+            val yearRaw  = rawData[i + 6].toInt() and 0xFF
+
+            if (sysRaw in 50..260 && diaRaw in 30..180 && pulseRaw in 30..240 &&
+                sysRaw >= diaRaw + 15 && minRaw in 0..59) {
+                val yearVal = yearRaw and 0x3F
+                val year = if (yearVal in 1..99) 2000 + yearVal else 2026
+                if (year in 2020..2030) {
+                    val day = rawDay and 0x1F
+                    if (day in 1..31) {
+                        val hour24 = (b4 and 0x3F).let { if (it in 0..23) it else (b4 and 0x1F) }
+                        if (hour24 in 0..23) {
+                            rawRecords.add(
+                                Raw7ByteRecord(
+                                    offset = i,
+                                    sys = sysRaw,
+                                    dia = diaRaw,
+                                    pulse = pulseRaw,
+                                    rawDayByte = rawDay,
+                                    day = day,
+                                    rawHourByte = b4,
+                                    hour24 = hour24,
+                                    min = minRaw,
+                                    rawYearByte = yearRaw,
+                                    year = year
+                                )
+                            )
+                            i += 7
+                            continue
+                        }
+                    }
+                }
+            }
+            i += 1
+        }
+
+        if (rawRecords.isEmpty()) {
+            logDiagnose("ℹ️ Keine gespeicherten Messwerte im Gerätespeicher gefunden (Speicher ist leer).")
+            scope.launch {
+                completeBatchAndFinish()
+            }
+            return
+        }
+
+        // 2. Ringspeicher-Umbruch ermitteln (Head-Index der neuesten Messung)
+        val now = System.currentTimeMillis()
+        val calNow = Calendar.getInstance()
+        val currentMonth = calNow.get(Calendar.MONTH) + 1
+        val currentDay = calNow.get(Calendar.DAY_OF_MONTH)
+        val currentHour = calNow.get(Calendar.HOUR_OF_DAY)
+        val currentMin = calNow.get(Calendar.MINUTE)
+
+        var headIndex = rawRecords.size - 1
+        for (k in 0 until rawRecords.size - 1) {
+            val curr = rawRecords[k]
+            val next = rawRecords[k + 1]
+
+            val isMonthRollover = (curr.day in 28..31 && next.day in 1..4)
+            val isTimeMovingForward = (next.day > curr.day) || (next.day == curr.day && (next.hour24 * 60 + next.min) >= (curr.hour24 * 60 + curr.min))
+
+            // Falls die nächste Messung bei Interpretation als heute/Zukunft in der Zukunft liegen würde:
+            val nextInFutureIfCurrIsToday = (curr.day == currentDay && next.day == currentDay && (next.hour24 * 60 + next.min) > (currentHour * 60 + currentMin + 15))
+            val nextDayInFuture = (curr.day <= currentDay && next.day > currentDay && k < rawRecords.size - 5)
+
+            if (!isMonthRollover && !isTimeMovingForward) {
+                headIndex = k
+                break
+            } else if (nextInFutureIfCurrIsToday || nextDayInFuture) {
+                headIndex = k
+                break
+            }
+        }
+
+        // 3. Chronologische Reihenfolge herstellen (Älteste -> Neueste)
+        val chronological: List<Raw7ByteRecord> = if (headIndex < rawRecords.size - 1) {
+            rawRecords.subList(headIndex + 1, rawRecords.size) + rawRecords.subList(0, headIndex + 1)
+        } else {
+            rawRecords
+        }
+
+        // 4. Monate und Jahre rückwärts ausgehend von der neuesten Messung zuweisen
+        val last = chronological.last()
+        var curYear = last.year
+        var curMonth = currentMonth
+
+        val anchorCal = Calendar.getInstance().apply {
+            set(Calendar.YEAR, curYear)
+            set(Calendar.MONTH, curMonth - 1)
+            set(Calendar.DAY_OF_MONTH, last.day)
+            set(Calendar.HOUR_OF_DAY, last.hour24)
+            set(Calendar.MINUTE, last.min)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        // Falls der neueste Eintrag bei Annahme des aktuellen Monats in der Zukunft liegt:
+        if (anchorCal.timeInMillis > now + 15 * 60 * 1000L) {
+            curMonth -= 1
+            if (curMonth == 0) {
+                curMonth = 12
+                curYear -= 1
+            }
+        }
+
+        val decodedTemp = mutableListOf<Pair<BpMeasurement, DecodedDateTime>>()
+        for (idx in chronological.indices.reversed()) {
+            val r = chronological[idx]
+            if (idx < chronological.size - 1) {
+                val nextR = chronological[idx + 1]
+                val isMonthBoundary = (r.day > nextR.day) || (r.day == nextR.day && (r.hour24 * 60 + r.min) > (nextR.hour24 * 60 + nextR.min))
+                if (isMonthBoundary) {
+                    curMonth -= 1
+                    if (curMonth == 0) {
+                        curMonth = 12
+                        curYear -= 1
+                    }
+                }
+            }
+
+            var measCal = Calendar.getInstance().apply {
+                set(Calendar.YEAR, curYear)
+                set(Calendar.MONTH, curMonth - 1)
+                set(Calendar.DAY_OF_MONTH, r.day)
+                set(Calendar.HOUR_OF_DAY, r.hour24)
+                set(Calendar.MINUTE, r.min)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+
+            // Sicherheitsprüfung: Ein Messwert kann nie in der Zukunft liegen
+            if (measCal.timeInMillis > now + 15 * 60 * 1000L) {
+                curMonth -= 1
+                if (curMonth == 0) {
+                    curMonth = 12
+                    curYear -= 1
+                }
+                measCal = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, curYear)
+                    set(Calendar.MONTH, curMonth - 1)
+                    set(Calendar.DAY_OF_MONTH, r.day)
+                    set(Calendar.HOUR_OF_DAY, r.hour24)
+                    set(Calendar.MINUTE, r.min)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+            }
+
+            val isPm = r.hour24 >= 12
+            val hour12 = when {
+                r.hour24 == 0 -> 12
+                r.hour24 > 12 -> r.hour24 - 12
+                else -> r.hour24
+            }
+
+            val dt = DecodedDateTime(
+                year = curYear,
+                month = curMonth,
+                day = r.day,
+                hour24 = r.hour24,
+                minute = r.min,
+                isPm = isPm,
+                hour12 = hour12,
+                timestamp = measCal.timeInMillis
+            )
+
+            val measurement = BpMeasurement(
+                timestamp = dt.timestamp,
+                systole = r.sys,
+                diastole = r.dia,
+                pulse = r.pulse,
+                afibDetected = false,
+                notes = "aponorm® / Microlife Messung"
+            )
+
+            decodedTemp.add(Pair(measurement, dt))
+        }
+
+        val decodedChronological = decodedTemp.reversed()
+
         var messungsIndex = 0
         var foundCount = 0
 
-        var i = 0
-        while (i <= totalLength - 7) {
-            val decoded = decode7ByteRecord(rawData, i)
-            if (decoded != null) {
-                val (measurement, dt) = decoded
-                
-                messungsIndex++
-                val ausgabe = String.format(
-                    "MESSUNG Nr. %d -> %s | SYS: %d mmHg | DIA: %d mmHg | PULS: %d /min",
-                    messungsIndex, dt.formatLogString(), measurement.systole, measurement.diastole, measurement.pulse
-                )
-                Log.i("Aponorm_Echtzeit", ausgabe)
-                logDiagnose("📊 $ausgabe")
+        for ((measurement, dt) in decodedChronological) {
+            messungsIndex++
+            val ausgabe = String.format(
+                "MESSUNG Nr. %d -> %s | SYS: %d mmHg | DIA: %d mmHg | PULS: %d /min",
+                messungsIndex, dt.formatLogString(), measurement.systole, measurement.diastole, measurement.pulse
+            )
+            Log.i("Aponorm_Echtzeit", ausgabe)
+            logDiagnose("📊 $ausgabe")
 
-                if (receivedBatch.none { it.timestamp == measurement.timestamp && it.systole == measurement.systole }) {
-                    receivedBatch.add(measurement)
-                    foundCount++
-                }
-                i += 7 // Zum nächsten 7-Byte Datensatz springen
-            } else {
-                i += 1 // Weitersuchen
+            if (receivedBatch.none { it.timestamp == measurement.timestamp && it.systole == measurement.systole }) {
+                receivedBatch.add(measurement)
+                foundCount++
             }
         }
 
         if (foundCount == 0) {
-            logDiagnose("ℹ️ Keine gespeicherten Messwerte im Gerätespeicher gefunden (Speicher ist leer).")
+            logDiagnose("ℹ️ Keine neuen Messwerte im Gerätespeicher gefunden.")
         } else {
             logDiagnose("✓ $foundCount echte Messwerte erfolgreich entschlüsselt und importiert.")
         }
