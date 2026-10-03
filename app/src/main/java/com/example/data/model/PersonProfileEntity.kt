@@ -13,8 +13,7 @@ data class PersonProfileEntity(
     val diastoleNormMax: Int = 85,
     val deviceAddress: String = "",
     val measurementsPerDay: Int = 2,
-    val birthDate: String = "",
-    val autoEraseAfterSync: Boolean = true
+    val birthDate: String = ""
 ) {
     fun toDomain(): PersonProfile {
         return PersonProfile(
@@ -24,8 +23,7 @@ data class PersonProfileEntity(
             diastoleNormMax = diastoleNormMax,
             deviceAddress = deviceAddress,
             measurementsPerDay = measurementsPerDay,
-            birthDate = birthDate,
-            autoEraseAfterSync = autoEraseAfterSync
+            birthDate = birthDate
         )
     }
 
@@ -38,8 +36,7 @@ data class PersonProfileEntity(
                 diastoleNormMax = profile.diastoleNormMax,
                 deviceAddress = profile.deviceAddress,
                 measurementsPerDay = profile.measurementsPerDay,
-                birthDate = profile.birthDate,
-                autoEraseAfterSync = profile.autoEraseAfterSync
+                birthDate = profile.birthDate
             )
         }
     }

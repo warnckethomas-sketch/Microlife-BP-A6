@@ -40,7 +40,6 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -104,7 +103,6 @@ fun BleDiagnoseDialog(
     val settings by viewModel.settings.collectAsState()
 
     val listState = rememberLazyListState()
-    var showConfirmClearMemoryDialog by remember { mutableStateOf(false) }
 
     // Auto-scroll to latest log entry
     LaunchedEffect(diagnosticLogs.size) {
@@ -305,26 +303,6 @@ fun BleDiagnoseDialog(
                         ) {
                             Text(
                                 text = "⏰ Uhrzeit senden",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        FilledTonalButton(
-                            onClick = {
-                                showConfirmClearMemoryDialog = true
-                            },
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = Color(0xFFFEE2E2),
-                                contentColor = Color(0xFFDC2626)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier
-                                .height(34.dp)
-                                .testTag("btn_clear_device_memory_diagnose")
-                        ) {
-                            Text(
-                                text = "🗑️ Speicher löschen",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -601,49 +579,5 @@ fun BleDiagnoseDialog(
                 }
             }
         }
-    }
-
-    if (showConfirmClearMemoryDialog) {
-        AlertDialog(
-            onDismissRequest = { showConfirmClearMemoryDialog = false },
-            title = {
-                Text(
-                    text = "Gerätespeicher löschen?",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    color = CleanOnSurface
-                )
-            },
-            text = {
-                Text(
-                    text = "Möchten Sie den internen Speicher des Aponorm-Blutdruckmessgeräts (A6 BASIS PLUS BT) jetzt löschen?\n\nIhre in der App gespeicherten Messwerte bleiben erhalten und werden NICHT gelöscht.\n\nAuf dem Messgerät wird der Speicher über die verifizierte Original-App Setup-Kette (Uhrzeit-Autorisierung ➔ 250 ms Pause ➔ Löschbefehl ➔ 250 ms Pause ➔ Sitzung schließen ➔ Trennen) geleert und das Display zeigt 'CL'.",
-                    fontSize = 13.sp,
-                    color = CleanOnSurfaceVariant,
-                    lineHeight = 18.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showConfirmClearMemoryDialog = false
-                        viewModel.sendManualClearDeviceMemory(userIndex = settings.selectedUserIndex)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Löschen", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showConfirmClearMemoryDialog = false },
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Abbrechen", color = CleanOnSurfaceVariant)
-                }
-            },
-            shape = RoundedCornerShape(20.dp),
-            containerColor = CleanSurface
-        )
     }
 }

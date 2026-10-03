@@ -456,32 +456,14 @@ fun BleSyncBottomSheet(
 
                 is BleSyncStatus.ErasingMemory -> {
                     SyncStepStateCard(
-                        title = "Gerätespeicher löschen",
-                        subtitle = "Löschsequenz wird an das Aponorm-Gerät gesendet...",
+                        title = "3. Speicher-Löschung",
+                        subtitle = "Daten lokal gespeichert. Sende Löschquittierung...",
                         icon = Icons.Default.DeleteSweep,
                         isLoading = true
                     )
                 }
 
                 is BleSyncStatus.Success -> {
-                    val isClearSuccess = syncStatus.message?.contains("gelöscht", ignoreCase = true) == true
-                    val isTimeSuccess = syncStatus.message?.contains("Uhrzeit", ignoreCase = true) == true
-                    val titleText = when {
-                        isClearSuccess -> "Gerätespeicher gelöscht!"
-                        isTimeSuccess -> "Uhrzeit synchronisiert!"
-                        else -> "Synchronisation erfolgreich!"
-                    }
-                    val subtitleText = when {
-                        syncStatus.message != null ->
-                            syncStatus.message
-                        syncStatus.newlyInserted > 0 ->
-                            "${syncStatus.newlyInserted} neue Messwerte übertragen"
-                        syncStatus.newlyInserted == 0 ->
-                            "Keine neuen Messwerte übertragen"
-                        else ->
-                            "${syncStatus.count} neue Messwerte übertragen"
-                    }
-
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -494,42 +476,25 @@ fun BleSyncBottomSheet(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = titleText,
+                            text = "Synchronisation erfolgreich!",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
                             color = CleanNormText
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = subtitleText,
+                            text = when {
+                                syncStatus.newlyInserted > 0 ->
+                                    "${syncStatus.newlyInserted} neue Messwerte übertragen"
+                                syncStatus.newlyInserted == 0 ->
+                                    "Keine neuen Messwerte übertragen"
+                                else ->
+                                    "${syncStatus.count} neue Messwerte übertragen"
+                            },
                             textAlign = TextAlign.Center,
                             fontSize = 13.sp,
                             color = CleanMutedText
                         )
-                        
-                        // Memory Clear Hint
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Surface(
-                            color = CleanSurfaceVariant,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = "Hinweis: Gerätespeicher löschen",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = CleanOnSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Um den Speicher des Messgeräts zu löschen, halten Sie die 'M'-Taste am Gerät gedrückt, bis 'CL' erscheint. Bestätigen Sie anschließend durch erneutes Drücken der 'M'-Taste.",
-                                    fontSize = 12.sp,
-                                    color = CleanMutedText,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = onDismiss,

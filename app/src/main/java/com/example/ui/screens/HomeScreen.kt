@@ -43,7 +43,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
@@ -157,14 +156,13 @@ fun HomeScreen(
     var showPrintMonthDialog by remember { mutableStateOf(false) }
     var selectedPrintMonthKey by remember { mutableStateOf("") }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    var showConfirmClearDialog by remember { mutableStateOf(false) }
     var expandedMonthKeys by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     var isExitBackupInProgress by remember { mutableStateOf(false) }
     var exitBackupStatusText by remember { mutableStateOf("") }
     var exitBackupSuccess by remember { mutableStateOf<Boolean?>(null) }
 
-    val hasAnyOpenDialog = showBleBottomSheet || showSettingsDialog || showDiagnoseDialog || showPrintMonthDialog || showConfirmClearDialog
+    val hasAnyOpenDialog = showBleBottomSheet || showSettingsDialog || showDiagnoseDialog || showPrintMonthDialog
 
     fun performBackupAndExit() {
         if (isExitBackupInProgress) return
@@ -286,8 +284,6 @@ fun HomeScreen(
         if (syncStatus is com.example.ble.BleSyncStatus.Success) {
             val status = syncStatus as com.example.ble.BleSyncStatus.Success
             val msg = when {
-                status.message != null ->
-                    status.message
                 status.newlyInserted > 0 ->
                     "${status.newlyInserted} neue Messwerte übertragen."
                 status.newlyInserted == 0 ->
@@ -429,6 +425,29 @@ fun HomeScreen(
                                         showDiagnoseDialog = true
                                     },
                                     modifier = Modifier.testTag("menu_diagnose")
+                                )
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Uhr stellen",
+                                            fontWeight = FontWeight.Medium,
+                                            color = CleanOnSurface
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AccessTime,
+                                            contentDescription = null,
+                                            tint = CleanPrimary
+                                        )
+                                    },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showBleBottomSheet = true
+                                        viewModel.sendManualTimeSync()
+                                    },
+                                    modifier = Modifier.testTag("menu_set_clock")
                                 )
 
                                 DropdownMenuItem(
@@ -986,10 +1005,7 @@ fun HomeScreen(
                             measurement = item,
                             systoleNormMax = settings.systoleNormMax,
                             diastoleNormMax = settings.diastoleNormMax,
-                            onDeleteClick = {
-                                viewModel.deleteMeasurement(it)
-                                Toast.makeText(context, "Messwert gelöscht", Toast.LENGTH_SHORT).show()
-                            }
+                            onDeleteClick = { viewModel.deleteMeasurement(it) }
                         )
                     }
                 }
@@ -1094,82 +1110,13 @@ fun HomeScreen(
                                 measurement = item,
                                 systoleNormMax = settings.systoleNormMax,
                                 diastoleNormMax = settings.diastoleNormMax,
-                                onDeleteClick = {
-                                    viewModel.deleteMeasurement(it)
-                                    Toast.makeText(context, "Messwert gelöscht", Toast.LENGTH_SHORT).show()
-                                }
+                                onDeleteClick = { viewModel.deleteMeasurement(it) }
                             )
                         }
                     }
                 }
             }
         }
-    }
-
-    // Bestätigungsdialog: Nur internen Gerätespeicher des Aponorm-Blutdruckmessgeräts löschen (App-Messwerte bleiben unberührt)
-    if (showConfirmClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showConfirmClearDialog = false },
-            icon = {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFFEE2E2)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteSweep,
-                        contentDescription = null,
-                        tint = Color(0xFFDC2626),
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            },
-            title = {
-                Text(
-                    text = "Gerätespeicher löschen?",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = CleanOnSurface
-                )
-            },
-            text = {
-                Text(
-                    text = "Möchten Sie den internen Speicher auf dem Aponorm-Blutdruckmessgerät jetzt löschen?\n\nIhre in der App gespeicherten Messwerte bleiben zu 100% erhalten und werden NICHT gelöscht.\n\nAuf dem Messgerät wird der Speicher über die verifizierte Original-App Setup-Kette (Uhrzeit-Autorisierung ➔ 250 ms Pause ➔ Löschbefehl ➔ 250 ms Pause ➔ Sitzung schließen ➔ Trennen) geleert und das Display zeigt 'CL'.",
-                    fontSize = 13.5.sp,
-                    color = CleanOnSurfaceVariant,
-                    lineHeight = 19.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showConfirmClearDialog = false
-                        showBleBottomSheet = true
-                        viewModel.sendManualClearDeviceMemory(userIndex = settings.selectedUserIndex)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.testTag("btn_confirm_clear_device_memory")
-                ) {
-                    Text(
-                        text = "Speicher löschen",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showConfirmClearDialog = false },
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Abbrechen", color = CleanOnSurfaceVariant)
-                }
-            },
-            shape = RoundedCornerShape(20.dp),
-            containerColor = CleanSurface
-        )
     }
 
     // BLE Sync Modal Dialog (Mittig)

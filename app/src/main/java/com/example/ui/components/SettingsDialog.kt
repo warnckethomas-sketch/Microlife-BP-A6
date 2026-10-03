@@ -12,7 +12,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -130,7 +129,6 @@ fun SettingsDialog(
     var p1MeasurementsPerDayText by remember { mutableStateOf(currentSettings.person1.measurementsPerDay.toString()) }
     var p1BirthDate by remember { mutableStateOf(currentSettings.person1.birthDate) }
     var p1Device by remember { mutableStateOf(currentSettings.person1.deviceAddress) }
-    var p1AutoErase by remember { mutableStateOf(currentSettings.person1.autoEraseAfterSync) }
 
     // Person 2 State
     var p2Name by remember { mutableStateOf(currentSettings.person2.name) }
@@ -139,7 +137,6 @@ fun SettingsDialog(
     var p2MeasurementsPerDayText by remember { mutableStateOf(currentSettings.person2.measurementsPerDay.toString()) }
     var p2BirthDate by remember { mutableStateOf(currentSettings.person2.birthDate) }
     var p2Device by remember { mutableStateOf(currentSettings.person2.deviceAddress) }
-    var p2AutoErase by remember { mutableStateOf(currentSettings.person2.autoEraseAfterSync) }
 
     // Options State
     var autoErase by remember { mutableStateOf(currentSettings.autoEraseAfterSync) }
@@ -164,7 +161,6 @@ fun SettingsDialog(
         p1MeasurementsPerDayText = currentSettings.person1.measurementsPerDay.toString()
         p1BirthDate = currentSettings.person1.birthDate
         p1Device = currentSettings.person1.deviceAddress
-        p1AutoErase = currentSettings.person1.autoEraseAfterSync
 
         p2Name = currentSettings.person2.name
         p2SysText = currentSettings.person2.systoleNormMax.toString()
@@ -172,7 +168,6 @@ fun SettingsDialog(
         p2MeasurementsPerDayText = currentSettings.person2.measurementsPerDay.toString()
         p2BirthDate = currentSettings.person2.birthDate
         p2Device = currentSettings.person2.deviceAddress
-        p2AutoErase = currentSettings.person2.autoEraseAfterSync
 
         autoErase = currentSettings.autoEraseAfterSync
         use12Hour = currentSettings.use12HourTimeFormat
@@ -315,8 +310,7 @@ fun SettingsDialog(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Bei zwei baugleichen Microlife A6 BT-Geräten ordnen Sie hier jedem Profil die spezifische MAC-Adresse mit der Scan-Funktion zu.\n\n" +
-                                   "Hinweis: Die Uhrzeit des Messgeräts stellt sich bei jedem Synchronisationsvorgang automatisch ein. Dies ist besonders wichtig nach einem Batteriewechsel.",
+                            text = "Bei zwei baugleichen Microlife A6 BT-Geräten ordnen Sie hier jedem Profil die spezifische MAC-Adresse mit der Scan-Funktion zu.",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = darkTextColor,
@@ -381,12 +375,6 @@ fun SettingsDialog(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = if (p1Device.isNotBlank()) CleanPrimary else darkMutedColor
-                                    )
-                                    Text(
-                                        text = if (p1AutoErase) "Speicher löschen: JA" else "Speicher löschen: NEIN",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (p1AutoErase) Color(0xFFD32F2F) else Color(0xFF2E7D32)
                                     )
                                 }
                             }
@@ -557,39 +545,6 @@ fun SettingsDialog(
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
-                                // Memory Erase Toggle for Person 1
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (p1AutoErase) Color(0xFFFEF2F2) else Color(0xFFF0FDF4))
-                                        .border(1.dp, if (p1AutoErase) Color(0xFFFCA5A5) else Color(0xFFBBF7D0), RoundedCornerShape(12.dp))
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Speicher automatisch löschen?",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 13.sp,
-                                            color = darkTextColor
-                                        )
-                                        Text(
-                                            text = "Leert den Gerätespeicher nach jeder Synchronisation.",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = darkMutedColor
-                                        )
-                                    }
-                                    Switch(
-                                        checked = p1AutoErase,
-                                        onCheckedChange = { p1AutoErase = it },
-                                        modifier = Modifier.testTag("switch_p1_auto_erase")
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
                                 // Device MAC Address Field + Scan Button
                                 OutlinedTextField(
                                     value = p1Device,
@@ -724,12 +679,6 @@ fun SettingsDialog(
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = if (p2Device.isNotBlank()) CleanOnSurfaceVariant else darkMutedColor
-                                    )
-                                    Text(
-                                        text = if (p2AutoErase) "Speicher löschen: JA" else "Speicher löschen: NEIN",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (p2AutoErase) Color(0xFFD32F2F) else Color(0xFF2E7D32)
                                     )
                                 }
                             }
@@ -897,39 +846,6 @@ fun SettingsDialog(
                                     color = darkMutedColor,
                                     modifier = Modifier.padding(top = 3.dp, start = 2.dp)
                                 )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Memory Erase Toggle for Person 2
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(if (p2AutoErase) Color(0xFFFEF2F2) else Color(0xFFF0FDF4))
-                                        .border(1.dp, if (p2AutoErase) Color(0xFFFCA5A5) else Color(0xFFBBF7D0), RoundedCornerShape(12.dp))
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Speicher automatisch löschen?",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 13.sp,
-                                            color = darkTextColor
-                                        )
-                                        Text(
-                                            text = "Leert den Gerätespeicher nach jeder Synchronisation.",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = darkMutedColor
-                                        )
-                                    }
-                                    Switch(
-                                        checked = p2AutoErase,
-                                        onCheckedChange = { p2AutoErase = it },
-                                        modifier = Modifier.testTag("switch_p2_auto_erase")
-                                    )
-                                }
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -1578,11 +1494,10 @@ fun SettingsDialog(
                             ) {
                                 HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
 
-                                var showConfirmDeleteAppDialog by remember { mutableStateOf(false) }
-
                                 Button(
                                     onClick = {
-                                        showConfirmDeleteAppDialog = true
+                                        onClearAllData()
+                                        onDismiss()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
                                     modifier = Modifier
@@ -1591,44 +1506,7 @@ fun SettingsDialog(
                                 ) {
                                     Icon(imageVector = Icons.Default.DeleteForever, contentDescription = null, tint = Color.White)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Alle App-Messwerte löschen", fontWeight = FontWeight.Bold, color = Color.White)
-                                }
-
-                                if (showConfirmDeleteAppDialog) {
-                                    AlertDialog(
-                                        onDismissRequest = { showConfirmDeleteAppDialog = false },
-                                        title = {
-                                            Text(
-                                                text = "App-Messwerte löschen?",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 17.sp
-                                            )
-                                        },
-                                        text = {
-                                            Text(
-                                                text = "Möchten Sie wirklich alle in der Smartphone-App gespeicherten Messwerte löschen?\n\nHinweis: Das physische Blutdruckmessgerät und dessen Gerätespeicher bleiben hiervon unberührt.",
-                                                fontSize = 13.sp,
-                                                lineHeight = 18.sp
-                                            )
-                                        },
-                                        confirmButton = {
-                                            Button(
-                                                onClick = {
-                                                    showConfirmDeleteAppDialog = false
-                                                    onClearAllData()
-                                                    onDismiss()
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
-                                            ) {
-                                                Text("App-Daten löschen", fontWeight = FontWeight.Bold)
-                                            }
-                                        },
-                                        dismissButton = {
-                                            OutlinedButton(onClick = { showConfirmDeleteAppDialog = false }) {
-                                                Text("Abbrechen")
-                                            }
-                                        }
-                                    )
+                                    Text("Alle Messwerte löschen", fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                             }
                         }
@@ -1657,8 +1535,7 @@ fun SettingsDialog(
                                 diastoleNormMax = p1Dia,
                                 deviceAddress = p1Device.trim(),
                                 measurementsPerDay = p1Daily,
-                                birthDate = p1BirthDate.trim(),
-                                autoEraseAfterSync = p1AutoErase
+                                birthDate = p1BirthDate.trim()
                             ),
                             person2 = currentSettings.person2.copy(
                                 name = p2Name.trim().ifBlank { "Person 2" },
@@ -1666,10 +1543,9 @@ fun SettingsDialog(
                                 diastoleNormMax = p2Dia,
                                 deviceAddress = p2Device.trim(),
                                 measurementsPerDay = p2Daily,
-                                birthDate = p2BirthDate.trim(),
-                                autoEraseAfterSync = p2AutoErase
+                                birthDate = p2BirthDate.trim()
                             ),
-                            autoEraseAfterSync = if (currentSettings.selectedUserIndex == 2) p2AutoErase else p1AutoErase,
+                            autoEraseAfterSync = autoErase,
                             use12HourTimeFormat = use12Hour,
                             autoBackupEnabled = autoBackupEnabled,
                             backupDirectoryUri = backupDirUri,

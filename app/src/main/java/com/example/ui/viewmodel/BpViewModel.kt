@@ -85,13 +85,10 @@ class BpViewModel(
 
     fun startBleScan() {
         val activeDevice = settings.value.activePerson.deviceAddress
-        bleManager.autoEraseAfterSync = settings.value.activePerson.autoEraseAfterSync
-        bleManager.targetClearUserIndex = settings.value.selectedUserIndex
         if (activeDevice.isNotBlank()) {
             bleManager.connectToDevice(
                 address = activeDevice,
-                is12HourFormat = settings.value.use12HourTimeFormat,
-                targetUserIndex = settings.value.selectedUserIndex
+                is12HourFormat = settings.value.use12HourTimeFormat
             )
         } else {
             bleManager.startScan()
@@ -112,18 +109,14 @@ class BpViewModel(
             }
             repository.saveSettings(updated)
         }
-        bleManager.autoEraseAfterSync = settings.value.activePerson.autoEraseAfterSync
-        bleManager.targetClearUserIndex = settings.value.selectedUserIndex
         bleManager.connectToDevice(
             address = address,
-            is12HourFormat = settings.value.use12HourTimeFormat,
-            targetUserIndex = settings.value.selectedUserIndex
+            is12HourFormat = settings.value.use12HourTimeFormat
         )
     }
 
     fun finishSyncAndClearDeviceMemory(context: Context? = null) {
         viewModelScope.launch {
-            bleManager.autoEraseAfterSync = true
             bleManager.completeBatchAndEraseMemory()
             val ctx = context ?: this@BpViewModel.context
             if (ctx != null) {
@@ -147,16 +140,6 @@ class BpViewModel(
         bleManager.sendManualTimeSync(
             targetAddress = address.ifBlank { null },
             is12HourFormat = settings.value.use12HourTimeFormat
-        )
-    }
-
-    fun sendManualClearDeviceMemory(targetAddress: String? = null, userIndex: Int = settings.value.selectedUserIndex) {
-        val address = targetAddress ?: settings.value.activePerson.deviceAddress
-        bleManager.autoEraseAfterSync = true
-        bleManager.targetClearUserIndex = userIndex
-        bleManager.sendManualClearDeviceMemory(
-            targetAddress = address.ifBlank { null },
-            userIndex = userIndex
         )
     }
 
@@ -266,12 +249,6 @@ class BpViewModel(
     fun deleteMeasurement(id: Int) {
         viewModelScope.launch {
             repository.deleteMeasurement(id)
-        }
-    }
-
-    fun deleteMeasurementsForUser(userIndex: Int) {
-        viewModelScope.launch {
-            repository.deleteMeasurementsForUser(userIndex)
         }
     }
 

@@ -55,7 +55,7 @@ sealed class BleSyncStatus {
     object TimeSyncing : BleSyncStatus()
     data class Downloading(val current: Int, val total: Int) : BleSyncStatus()
     object ErasingMemory : BleSyncStatus()
-    data class Success(val count: Int, val newlyInserted: Int = -1, val message: String? = null) : BleSyncStatus()
+    data class Success(val count: Int, val newlyInserted: Int = -1) : BleSyncStatus()
     data class Error(val message: String) : BleSyncStatus()
 }
 
@@ -463,32 +463,23 @@ class MicrolifeBleManager(private val context: Context) {
     private var is12HourTimeFormat: Boolean = false
     private var isOnlyTimeSyncMode: Boolean = false
     private var isOnlyReadTimeMode: Boolean = false
-    private var isOnlyClearMemoryMode: Boolean = false
-    var targetClearUserIndex: Int = 1
-    var autoEraseAfterSync: Boolean = false
     private var measurementRequested: Boolean = false
     private var timeSyncAckSent: Boolean = false
-    private var clearMemoryAckSent: Boolean = false
 
     @SuppressLint("MissingPermission")
     fun connectToDevice(
         address: String,
         is12HourFormat: Boolean = false,
         onlyTimeSync: Boolean = false,
-        onlyReadTime: Boolean = false,
-        onlyClearMemory: Boolean = false,
-        targetUserIndex: Int = 1
+        onlyReadTime: Boolean = false
     ) {
         this.is12HourTimeFormat = is12HourFormat
         this.isOnlyTimeSyncMode = onlyTimeSync
         this.isOnlyReadTimeMode = onlyReadTime
-        this.isOnlyClearMemoryMode = onlyClearMemory
-        this.targetClearUserIndex = targetUserIndex
         this.isDataDownloadCompleted = false
         this.isErasingOrFinishing = false
         this.measurementRequested = false
         this.timeSyncAckSent = false
-        this.clearMemoryAckSent = false
         stopScan()
         receivedBatch.clear()
         dataBuffer.reset()
@@ -499,7 +490,6 @@ class MicrolifeBleManager(private val context: Context) {
         val modeStr = when {
             onlyTimeSync -> " (Reine Uhrzeit-Einstellung)"
             onlyReadTime -> " (Reine Uhrzeit-Auslesung)"
-            onlyClearMemory -> " (Gerätespeicher löschen - Benutzer $targetUserIndex)"
             else -> " (Messdaten-Download / Ringspeicher)"
         }
         logDiagnose("Verbindungsaufbau initiiert zu MAC-Adresse: $address$modeStr")
@@ -786,18 +776,10 @@ class MicrolifeBleManager(private val context: Context) {
             logDiagnose("\n=== GATT-ANALYSE VOLLSTÄNDIG ===")
             logDiagnose("Fahre mit der automatisierten Protokollkette fort...\n")
 
-            if (isOnlyClearMemoryMode) {
-                logDiagnose("▶ ISOLIERTES LÖSCHEN (Silent Erase): Überspringe Notifications, starte 3-Befehl-Kette...")
-                scope.launch {
-                    executeAponormClearMemorySequence(gatt, targetClearUserIndex)
-                }
-            } else {
-                // Benachrichtigungen (CCCD Descriptor auf FFF1) müssen ZWINGEND aktiviert werden,
-                // auch beim Löschen des Gerätespeichers. Die Firmware fordert den Datenfluss-Handshake!
-                queueOperation {
-                    logDiagnose("▶ SCHRITT 3: Aktiviere Benachrichtigungen (CCCD Descriptor auf FFF1)...")
-                    enableNotifications(gatt)
-                }
+            // Normaler Modus (Messungen auslesen oder Uhrzeit einstellen): Schritt 3 in die Warteschlange
+            queueOperation {
+                logDiagnose("▶ SCHRITT 3: Aktiviere Benachrichtigungen (CCCD Descriptor)...")
+                enableNotifications(gatt)
             }
         }
 
@@ -880,18 +862,7 @@ class MicrolifeBleManager(private val context: Context) {
                 return
             }
 
-            // Fall 3: Reiner Speicher-Löschmodus (über Button "Gerätespeicher löschen")
-            if (isOnlyClearMemoryMode) {
-                logDiagnose("▶ Gerätespeicher-Löschmodus aktiv (Benutzer $targetClearUserIndex):")
-                logDiagnose("   ├-- 1. Fordere Datenfluss via CMD_GET_MEASUREMENTS an (Firmware-Voraussetzung)...")
-                logDiagnose("   └-- 2. Nach Datenabschluss wird die 3-Schritt-Löschsequenz (0F ➔ 250ms ➔ 05) gezündet.")
-                _syncStatus.value = BleSyncStatus.Downloading(0, 1)
-                sendPacket(gatt, CMD_GET_MEASUREMENTS, writeNoResponse = true)
-                scheduleStreamFinish()
-                return
-            }
-
-            // Fall 4: Normaler Messdaten-Download (Reiner Datenstrom ohne Uhrzeitbefehl)
+            // Fall 3: Normaler Messdaten-Download (Reiner Datenstrom ohne Uhrzeitbefehl)
             logDiagnose("▶ Stream-Kanal bereit. Fordere Messdaten direkt vom Aponorm Gerät an (reiner Datenstrom)...")
             _syncStatus.value = BleSyncStatus.Downloading(0, 1)
             sendPacket(gatt, CMD_GET_MEASUREMENTS, writeNoResponse = true)
@@ -929,7 +900,7 @@ class MicrolifeBleManager(private val context: Context) {
                             timeSyncAckSent = true
                             logDiagnose("✓ Uhrzeit-Befehl erfolgreich an das Aponorm Gerät übertragen.")
                             logDiagnose("▶ Warte auf Abschluss der Geräte-Verarbeitung (Display-Uhrzeit / Piepton)...")
-                            _syncStatus.value = BleSyncStatus.Success(0, message = "Uhrzeit erfolgreich synchronisiert.")
+                            _syncStatus.value = BleSyncStatus.Success(0)
                             // Nicht sofort hart trennen, damit das Gerät nicht mit 'FL' abbricht, sondern die RTC speichert!
                             handler.postDelayed({
                                 if (bluetoothGatt != null && realGattConnected) {
@@ -937,11 +908,6 @@ class MicrolifeBleManager(private val context: Context) {
                                     disconnect()
                                 }
                             }, 8000)
-                        }
-                    } else if (isOnlyClearMemoryMode) {
-                        if (!clearMemoryAckSent) {
-                            clearMemoryAckSent = true
-                            logDiagnose("✓ Speicher-Löschbefehl auf FFF2 quittiert.")
                         }
                     }
                 }
@@ -987,58 +953,8 @@ class MicrolifeBleManager(private val context: Context) {
                     analyzeAndLogIncomingPacketStructure(packet)
                 }
 
-                // 2. Finale Bestätigung über erfolgreichen Löschvorgang: 4D 31 00 02 81 01 (Opcode 0x81, User 0x01/0x02)
-                if (packet.size >= 5 && packet[0] == 0x4D.toByte() &&
-                    (packet[1] == 0x31.toByte() || packet[1] == 0xFF.toByte() || packet[1] == 0x3A.toByte()) &&
-                    (packet[4].toInt() and 0xFF) == 0x81
-                ) {
-                    val userNum = if (packet.size >= 6) packet[5].toInt() and 0xFF else targetClearUserIndex
-                    val hexStr = packet.joinToString(" ") { "%02X".format(it) }
-                    logDiagnose("🎉 FINALE GERÄTE-BESTÄTIGUNG ($hexStr):")
-                    logDiagnose("   ├-- Antwort-Kennung: 0x81 (Befehl erfolgreich ausgeführt / Success)")
-                    logDiagnose("   ├-- Gelöschter Benutzer: Benutzer $userNum")
-                    logDiagnose("   └-- Gerätespeicher im EEPROM wurde vollständig freigegeben (großes CL)!")
-
-                    _syncStatus.value = BleSyncStatus.Success(0, message = "Gerätespeicher für Benutzer $userNum erfolgreich gelöscht (CL).")
-
-                    // Session sauber abschließen gegen "FL"
-                    val closeCmd = byteArrayOf(
-                        0x4D.toByte(), 0x31.toByte(), 0x00.toByte(), 0x01.toByte(),
-                        0xFC.toByte(), 0x7B.toByte()
-                    )
-                    sendPacket(gatt, closeCmd, writeNoResponse = true)
-
-                    handler.postDelayed({
-                        if (bluetoothGatt != null && realGattConnected) {
-                            logDiagnose("ℹ️ Löschvorgang erfolgreich abgeschlossen. Schließe Verbindung.")
-                            disconnect()
-                        }
-                    }, 2000)
-                    return
-                }
-
                 // Wenn Download bereits abgeschlossen ist oder Speicher gelöscht wird, keine weiteren Messungen parsen
                 if (isDataDownloadCompleted || isErasingOrFinishing) {
-                    return
-                }
-
-                // Erkennt das Gerät, dass der Datenstrom der Messwerte vorbei ist?
-                // Microlife / Aponorm sendet am Ende oft ein kurzes Statuspaket (< 20 Bytes, beginnt mit 0x4D)
-                if (isOnlyClearMemoryMode && !clearSequenceInProgress && !isErasingOrFinishing &&
-                    packet.size in 1..19 && packet[0] == 0x4D.toByte() &&
-                    (packet.size < 5 || (packet[4].toInt() and 0xFF) != 0x81) &&
-                    (packet.size < 4 || (packet[3].toInt() and 0xFF) != 0x25)
-                ) {
-                    val currentBuf = dataBuffer.toByteArray()
-                    if (currentBuf.size >= 7) {
-                        parseAponormDataStream(currentBuf, currentBuf.size)
-                    }
-                    dataBuffer.reset()
-                    expectedTotalSize = 0
-                    logDiagnose("▶ Status-Signal für Datenstrom-Ende erhalten. Zünde 3-Schritt-Löschsequenz...")
-                    scope.launch {
-                        executeAponormClearMemorySequence(gatt, targetClearUserIndex)
-                    }
                     return
                 }
 
@@ -1094,14 +1010,6 @@ class MicrolifeBleManager(private val context: Context) {
 
                     dataBuffer.reset()
                     expectedTotalSize = 0
-
-                    if (isOnlyClearMemoryMode) {
-                        logDiagnose("▶ Alle Daten empfangen. Zünde jetzt die 3-Schritt-Löschsequenz...")
-                        scope.launch {
-                            executeAponormClearMemorySequence(gatt, targetClearUserIndex)
-                        }
-                        return
-                    }
                 }
             } else if (characteristic.uuid == BP_MEASUREMENT_CHAR_UUID) {
                 // Standard Bluetooth SIG GATT 0x2A35 Fallback
@@ -1970,10 +1878,6 @@ class MicrolifeBleManager(private val context: Context) {
                     if (currentBuffer.size >= 7) {
                         logDiagnose("✓ Datenstrom abgeschlossen (${currentBuffer.size} Bytes). Starte Dekodierung...")
                         parseAponormDataStream(currentBuffer, currentBuffer.size)
-                    }
-                    if (isOnlyClearMemoryMode) {
-                        logDiagnose("▶ Datenstrom beendet. Starte 3-Schritt-Löschsequenz für Gerätespeicher...")
-                        executeAponormClearMemorySequence(bluetoothGatt, targetClearUserIndex)
                     } else if (receivedBatch.isNotEmpty()) {
                         logDiagnose("✓ Alle Messwerte empfangen (${receivedBatch.size} Einträge). Schließe Synchronisation ab...")
                         completeBatchAndFinish()
@@ -1985,235 +1889,84 @@ class MicrolifeBleManager(private val context: Context) {
             }
         }
         streamEndRunnable = r
-        handler.postDelayed(r, 2000)
-    }
-
-    /**
-     * Erstellt den exakten Aponorm / Microlife Befehl zum Löschen des Speichers (erzwingt großes "CL" im Display):
-     * [0x4D, 0x31, 0x00, 0x02, 0x05, User, Checksumme]
-     * - User 1: 4D 31 00 02 05 01 86
-     * - User 2: 4D 31 00 02 05 02 87
-     */
-    fun buildClearCommand(userIndex: Int = 1): ByteArray {
-        val u = if (userIndex == 2) 0x02.toByte() else 0x01.toByte()
-        val cmd = byteArrayOf(
-            0x4D.toByte(), // 'M'
-            0x31.toByte(), // '1' (M1 Modell)
-            0x00.toByte(),
-            0x02.toByte(), // Länge 2 Bytes Payload
-            0x05.toByte(), // 0x05 = Lösch-Kommando
-            u,             // 0x01 = User 1, 0x02 = User 2
-            0x00.toByte()  // Prüfsumme
-        )
-        var sum = 0
-        for (i in 0 until cmd.size - 1) {
-            sum += (cmd[i].toInt() and 0xFF)
-        }
-        cmd[cmd.size - 1] = (sum and 0xFF).toByte()
-        return cmd
-    }
-
-    private var clearSequenceInProgress = false
-
-    /**
-     * Isolierte 3-Schritt Löschsequenz für Aponorm / Microlife (BP3Gu1-6B):
-     * Tricks die Firmware aus, indem ein abgeschlossener Download vorgegaukelt wird.
-     *
-     * Schritt 1: Freigabe-Signal (Fake-Download-Beendet): 4D 31 00 01 0F 8E
-     * Schritt 2: Der eigentliche Löschbefehl (CL): 4D 31 00 02 05 [User] [Checksum]
-     * Schritt 3: Finales Schließ-Kommando (Gegen FL): 4D 31 00 01 0F 8E
-     */
-    @SuppressLint("MissingPermission")
-    suspend fun executeAponormClearMemorySequence(gatt: BluetoothGatt? = bluetoothGatt, userIndex: Int = this.targetClearUserIndex) {
-        val activeGatt = gatt ?: bluetoothGatt
-        if (activeGatt == null) {
-            logDiagnose("⚠️ Speicher-Löschung nicht möglich: Keine aktive GATT-Verbindung.")
-            return
-        }
-        if (clearSequenceInProgress) return
-        clearSequenceInProgress = true
-        isErasingOrFinishing = true
-
-        _syncStatus.value = BleSyncStatus.ErasingMemory
-        val writeChar = activeGatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID)
-            ?: findWriteCharacteristic(activeGatt)
-
-        if (writeChar == null) {
-            logDiagnose("❌ Schreibkanal FFF2 nicht gefunden!")
-            clearSequenceInProgress = false
-            isErasingOrFinishing = false
-            return
-        }
-
-        val targetUser = if (userIndex in 1..2) userIndex else 1
-        val userHeaderByte = if (targetUser == 2) 0x32.toByte() else 0x31.toByte()
-        logDiagnose("🗑️ STARTE ISOLIERTE LÖSCHKETTE (Silent Erase für Benutzer $targetUser)...")
-
-        // 1. FREIGABE: Dem Gerät sagen, der (Fake-)Download ist beendet
-        val authCmd = buildMicrolifeCommand(userHeaderByte, byteArrayOf(0x00.toByte(), 0x01.toByte(), 0x0F.toByte()))
-        logDiagnose("   ├-- 1/3 FREIGABE (Fake-End): ${authCmd.joinToString(" ") { "%02X".format(it) }}")
-        sendPacket(activeGatt, authCmd, writeNoResponse = true)
-        delay(200)
-
-        // 2. LÖSCHEN: Jetzt geht der Befehl durch -> Großes CL im Display
-        val deleteCmd = buildMicrolifeCommand(userHeaderByte, byteArrayOf(0x00.toByte(), 0x02.toByte(), 0x05.toByte(), targetUser.toByte()))
-        logDiagnose("   ├-- 2/3 LÖSCHEN (CL): ${deleteCmd.joinToString(" ") { "%02X".format(it) }}")
-        sendPacket(activeGatt, deleteCmd, writeNoResponse = true)
-        delay(250)
-        
-        // 3. SCHLIESSEN: Sitzung sauber beenden, verhindert das FL
-        val closeCmd = buildMicrolifeCommand(userHeaderByte, byteArrayOf(0x00.toByte(), 0x01.toByte(), 0x0F.toByte()))
-        logDiagnose("   ├-- 3/3 SCHLIESSEN (Final): ${closeCmd.joinToString(" ") { "%02X".format(it) }}")
-        sendPacket(activeGatt, closeCmd, writeNoResponse = true)
-        delay(100)
-        
-        logDiagnose("   └-- Verbindung trennen.")
-        activeGatt.disconnect()
-        
-        _syncStatus.value = BleSyncStatus.Success(0, message = "Gerätespeicher gelöscht (CL).")
-        clearSequenceInProgress = false
-        isErasingOrFinishing = false
-    }
-
-    @SuppressLint("MissingPermission")
-    fun executePureSilentClear(gatt: BluetoothGatt? = bluetoothGatt, userIndex: Int = this.targetClearUserIndex) {
-        scope.launch {
-            executeAponormClearMemorySequence(gatt, userIndex)
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    fun executeSilentClearMemorySequence(gatt: BluetoothGatt? = bluetoothGatt) {
-        scope.launch {
-            executeAponormClearMemorySequence(gatt, targetClearUserIndex)
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    fun sendClearMemorySequence(gatt: BluetoothGatt? = bluetoothGatt, userIndex: Int = this.targetClearUserIndex) {
-        scope.launch {
-            executeAponormClearMemorySequence(gatt, userIndex)
-        }
-    }
-
-    /**
-     * Startet den gezielten Löschvorgang für den Gerätespeicher.
-     * Baut bei Bedarf eine Bluetooth-Verbindung zum Blutdruckmessgerät auf,
-     * lässt den Datenstrom laufen (Firmware-Schutz), sendet die 3-Schritt-Löschsequenz
-     * und trennt die Verbindung anschließend sauber.
-     */
-    @SuppressLint("MissingPermission")
-    fun sendManualClearDeviceMemory(targetAddress: String? = null, userIndex: Int = 1) {
-        this.isOnlyClearMemoryMode = true
-        this.targetClearUserIndex = userIndex
-        this.clearSequenceInProgress = false
-        this.isErasingOrFinishing = false
-        this.isOnlyTimeSyncMode = false
-        this.isOnlyReadTimeMode = false
-        this.clearMemoryAckSent = false
-        this.measurementRequested = false
-        if (bluetoothGatt != null && realGattConnected) {
-            logDiagnose("▶ Sende 3-Schritt-Löschsequenz an aktive GATT-Verbindung...")
-            scope.launch {
-                executeAponormClearMemorySequence(bluetoothGatt, userIndex)
-            }
-        } else if (!targetAddress.isNullOrBlank()) {
-            logDiagnose("▶ Baue Bluetooth-Verbindung zu $targetAddress auf (Gerätespeicher löschen für Benutzer $userIndex)...")
-            connectToDevice(targetAddress, onlyClearMemory = true, targetUserIndex = userIndex)
-        } else {
-            logDiagnose("⚠️ Keine aktive GATT-Verbindung und kein Gerät konfiguriert. Bitte zuerst 'Auslesen starten' tippen oder ein Gerät in den Einstellungen wählen.")
-        }
+        handler.postDelayed(r, 2500)
     }
 
     @SuppressLint("MissingPermission")
     suspend fun completeBatchAndEraseMemory() {
-        bluetoothGatt?.let { gatt ->
-            executeAponormClearMemorySequence(gatt, targetClearUserIndex)
-        } ?: run {
-            completeBatchAndFinish()
-        }
+        completeBatchAndFinish()
     }
 
     @SuppressLint("MissingPermission")
     suspend fun completeBatchAndFinish() {
-        if (isOnlyClearMemoryMode || isErasingOrFinishing) {
-            return
-        }
         if (_syncStatus.value is BleSyncStatus.Success || _syncStatus.value is BleSyncStatus.Error) {
             return
         }
         isDataDownloadCompleted = true
 
         val count = receivedBatch.size
-        val targetUser = if (targetClearUserIndex in 1..2) targetClearUserIndex else 1
-        val userHeaderByte = if (targetUser == 2) 0x32.toByte() else 0x31.toByte()
-
         if (count > 0) {
+            logDiagnose("ℹ️ Gerätespeicher bleibt erhalten (Hardware-Ringspeicher überschreibt älteste Werte automatisch).")
+            delay(200)
+
             // Nach Datum sortieren (neueste zuerst für UI)
             receivedBatch.sortByDescending { it.timestamp }
+
             _downloadedMeasurements.emit(receivedBatch.toList())
             _syncStatus.value = BleSyncStatus.Success(count)
             logDiagnose("🎉 SYNCHRONISATION ERFOLGREICH: $count echte Messungen übertragen.")
+
+            // Sende Uhrzeit-Synchronisation an das Gerät als Abschluss-Handshake
+            bluetoothGatt?.let { gatt ->
+                logDiagnose("▶ SCHRITT 8: Sende Uhrzeit-Synchronisation an Gerätespeicher...")
+                try {
+                    val localCal = Calendar.getInstance()
+                    val localStr = String.format("%02d.%02d.%04d %02d:%02d:%02d",
+                        localCal.get(Calendar.DAY_OF_MONTH),
+                        localCal.get(Calendar.MONTH) + 1,
+                        localCal.get(Calendar.YEAR),
+                        localCal.get(Calendar.HOUR_OF_DAY),
+                        localCal.get(Calendar.MINUTE),
+                        localCal.get(Calendar.SECOND)
+                    )
+
+                    // 1. Exakter Aponorm Lokalzeit-Befehl (Opcode 0x03, 12 Bytes)
+                    val localCmd = buildAponormLocalTimeCommand(localCal)
+                    val localHex = localCmd.joinToString(" ") { "%02X".format(it) }
+                    logDiagnose("   ├-- Sende Aponorm RTC-Uhrzeit: $localStr (Opcode 0x03) -> $localHex")
+                    sendPacket(gatt, localCmd, writeNoResponse = true)
+
+                    delay(200)
+
+                    // 2. Aponorm 11-Byte Zeit-Befehl (Opcode 0x08)
+                    val timeCmd11 = buildTimeCommand(headerByte = 0x31.toByte(), opcode = 0x08.toByte(), is12HourMode = false)
+                    val hexStr11 = timeCmd11.joinToString(" ") { "%02X".format(it) }
+                    logDiagnose("   ├-- Sende M1/A6 Zeit-Paket (11 Bytes): $hexStr11")
+                    sendPacket(gatt, timeCmd11, writeNoResponse = true)
+
+                    delay(200)
+
+                    // 3. Aponorm Header 0xFF Zeit-Befehl (Opcode 0x00)
+                    val ffCmd = buildAponormHeaderFFTimeCommand(localCal)
+                    val ffHex = ffCmd.joinToString(" ") { "%02X".format(it) }
+                    logDiagnose("   └-- Sende Header 0xFF Zeit-Paket: $ffHex")
+                    sendPacket(gatt, ffCmd, writeNoResponse = true)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Fehler beim Senden des Abschluss-Zeitpakets", e)
+                }
+
+                // Dem Gerät Zeit geben, um die RTC im EEPROM zu fixieren
+                logDiagnose("⏳ Warte auf interne RTC-Speicherung im Aponorm Gerät...")
+                delay(2000)
+            }
         } else {
+            // Keine neuen Messungen (Gerätespeicher war bereits leer oder wurde gelöscht)
             _downloadedMeasurements.emit(emptyList())
             _syncStatus.value = BleSyncStatus.Success(0)
             logDiagnose("ℹ️ Gerätespeicher ist leer (0 Messungen gefunden).")
         }
 
-        // Sende Uhrzeit-Synchronisation an das Gerät als Abschluss-Handshake
-        bluetoothGatt?.let { gatt ->
-            logDiagnose("▶ SCHRITT 8: Sende Uhrzeit-Synchronisation an Gerätespeicher...")
-            try {
-                val localCal = Calendar.getInstance()
-                val localStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.GERMANY).format(localCal.time)
-
-                // 1. Exakter Aponorm Lokalzeit-Befehl (Opcode 0x03, 12 Bytes)
-                val localCmd = buildAponormLocalTimeCommand(localCal)
-                logDiagnose("   ├-- Sende Aponorm RTC-Uhrzeit: $localStr (Opcode 0x03)")
-                sendPacket(gatt, localCmd, writeNoResponse = true)
-                delay(250)
-
-                // 2. Aponorm 11-Byte Zeit-Befehl (Opcode 0x08)
-                val timeCmd11 = buildTimeCommand(headerByte = userHeaderByte, opcode = 0x08.toByte(), is12HourMode = false)
-                logDiagnose("   ├-- Sende M1/A6 Zeit-Paket (Opcode 0x08, User $targetUser)")
-                sendPacket(gatt, timeCmd11, writeNoResponse = true)
-                delay(250)
-
-                // 3. Aponorm Header 0xFF Zeit-Befehl (Opcode 0x00)
-                val ffCmd = buildAponormHeaderFFTimeCommand(localCal)
-                logDiagnose("   └-- Sende Header 0xFF Zeit-Paket (Auth-Befehl)")
-                sendPacket(gatt, ffCmd, writeNoResponse = true)
-                
-                // Dem Gerät Zeit geben, um die RTC im EEPROM zu fixieren
-                logDiagnose("⏳ Warte auf interne RTC-Speicherung...")
-                delay(1200)
-
-                // --- AUTOMATISCHES LÖSCHEN WENN AKTIVIERT ---
-                if (autoEraseAfterSync) {
-                    logDiagnose("🗑️ AUTOMATISCHES LÖSCHEN AKTIVIERT: Starte Löschvorgang für Benutzer $targetUser...")
-                    
-                    // 1. FREIGABE: Dem Gerät sagen, der Download ist beendet
-                    val authCmd = buildMicrolifeCommand(userHeaderByte, byteArrayOf(0x00.toByte(), 0x01.toByte(), 0x0F.toByte()))
-                    logDiagnose("   ├-- 1/2 FREIGABE (End-ACK): ${authCmd.joinToString(" ") { "%02X".format(it) }}")
-                    sendPacket(gatt, authCmd, writeNoResponse = true)
-                    delay(300)
-
-                    // 2. LÖSCHEN: Jetzt geht der Befehl durch -> Großes CL im Display
-                    val deleteCmd = buildMicrolifeCommand(userHeaderByte, byteArrayOf(0x00.toByte(), 0x02.toByte(), 0x05.toByte(), targetUser.toByte()))
-                    logDiagnose("   └-- 2/2 LÖSCHEN (CL): ${deleteCmd.joinToString(" ") { "%02X".format(it) }}")
-                    sendPacket(gatt, deleteCmd, writeNoResponse = true)
-                    
-                    // Nach dem Löschen braucht das Gerät Zeit für das EEPROM
-                    delay(500)
-                    logDiagnose("🎉 Gerätespeicher gelöscht (CL auf Display).")
-                    _syncStatus.value = BleSyncStatus.Success(count, message = "Synchronisiert & Speicher gelöscht.")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Fehler beim Abschluss-Handshake", e)
-            }
-        }
-
-        delay(800)
+        delay(500)
         disconnect()
     }
 
@@ -2421,10 +2174,8 @@ class MicrolifeBleManager(private val context: Context) {
 
         if (rawRecords.isEmpty()) {
             logDiagnose("ℹ️ Keine gespeicherten Messwerte im Gerätespeicher gefunden (Speicher ist leer).")
-            if (!isOnlyClearMemoryMode) {
-                scope.launch {
-                    completeBatchAndFinish()
-                }
+            scope.launch {
+                completeBatchAndFinish()
             }
             return
         }
@@ -2585,11 +2336,6 @@ class MicrolifeBleManager(private val context: Context) {
             logDiagnose("ℹ️ Keine neuen Messwerte im Gerätespeicher gefunden.")
         } else {
             logDiagnose("✓ $foundCount echte Messwerte erfolgreich entschlüsselt und importiert.")
-        }
-
-        if (isOnlyClearMemoryMode) {
-            logDiagnose("✓ $foundCount Messwerte aus Gerätespeicher vor dem Löschen in App erfasst.")
-            return
         }
 
         scope.launch {
