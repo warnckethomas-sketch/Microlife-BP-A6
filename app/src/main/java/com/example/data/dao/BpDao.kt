@@ -29,6 +29,9 @@ interface BpDao {
     @Query("DELETE FROM bp_measurements WHERE id = :id")
     suspend fun deleteMeasurementById(id: Int)
 
+    @Query("DELETE FROM bp_measurements WHERE userIndex = :userIndex")
+    suspend fun deleteMeasurementsForUser(userIndex: Int)
+
     @Query("DELETE FROM bp_measurements WHERE timestamp > :futureLimit")
     suspend fun deleteFutureMeasurements(futureLimit: Long): Int
 

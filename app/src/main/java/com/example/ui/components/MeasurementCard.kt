@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -201,14 +202,14 @@ fun MeasurementCard(
                 IconButton(
                     onClick = { onDeleteClick(measurement.id) },
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(40.dp)
                         .testTag("delete_measurement_${measurement.id}")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Messung löschen",
-                        tint = CleanMutedText.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
+                        tint = Color(0xFFEF4444).copy(alpha = 0.8f),
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }

@@ -17,7 +17,7 @@ import com.example.data.model.PersonProfileEntity
         PersonProfileEntity::class,
         AppSettingsEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class BpDatabase : RoomDatabase() {
@@ -69,6 +69,12 @@ abstract class BpDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `person_profiles` ADD COLUMN `autoEraseAfterSync` INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         fun getDatabase(context: Context): BpDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -76,7 +82,7 @@ abstract class BpDatabase : RoomDatabase() {
                     BpDatabase::class.java,
                     "microlife_bp_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                 INSTANCE = instance
                 instance

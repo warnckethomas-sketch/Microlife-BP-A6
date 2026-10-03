@@ -21,7 +21,8 @@ data class PersonProfile(
     val diastoleNormMax: Int = 85,
     val deviceAddress: String = "", // Paired BLE Device MAC / Name
     val measurementsPerDay: Int = 2, // Geplante Messungen pro Tag (z.B. 2x, 3x, 4x)
-    val birthDate: String = "" // Geburtsdatum z.B. "15.04.1958"
+    val birthDate: String = "", // Geburtsdatum z.B. "15.04.1958"
+    val autoEraseAfterSync: Boolean = true
 )
 
 data class UserSettings(
@@ -130,6 +131,7 @@ class BpRepository(
         val p1Device = prefs.getString("p1_device", "") ?: ""
         val p1DailyTarget = prefs.getInt("p1_measurements_per_day", 2)
         val p1BirthDate = prefs.getString("p1_birth_date", "") ?: ""
+        val p1AutoErase = prefs.getBoolean("p1_auto_erase", true)
 
         val p2Name = prefs.getString("p2_name", "Person 2 (Thomas)") ?: "Person 2 (Thomas)"
         val p2Sys = prefs.getInt("p2_sys_norm", 140)
@@ -137,6 +139,7 @@ class BpRepository(
         val p2Device = prefs.getString("p2_device", "") ?: ""
         val p2DailyTarget = prefs.getInt("p2_measurements_per_day", 2)
         val p2BirthDate = prefs.getString("p2_birth_date", "") ?: ""
+        val p2AutoErase = prefs.getBoolean("p2_auto_erase", true)
 
         val autoErase = prefs.getBoolean("auto_erase", true)
         val use12Hour = prefs.getBoolean("use_12_hour_format", false)
@@ -151,8 +154,8 @@ class BpRepository(
 
         return UserSettings(
             selectedUserIndex = selectedUser,
-            person1 = PersonProfile(1, p1Name, p1Sys, p1Dia, p1Device, p1DailyTarget, p1BirthDate),
-            person2 = PersonProfile(2, p2Name, p2Sys, p2Dia, p2Device, p2DailyTarget, p2BirthDate),
+            person1 = PersonProfile(1, p1Name, p1Sys, p1Dia, p1Device, p1DailyTarget, p1BirthDate, p1AutoErase),
+            person2 = PersonProfile(2, p2Name, p2Sys, p2Dia, p2Device, p2DailyTarget, p2BirthDate, p2AutoErase),
             autoEraseAfterSync = autoErase,
             use12HourTimeFormat = use12Hour,
             autoBackupEnabled = autoBackup,
@@ -173,12 +176,14 @@ class BpRepository(
             .putString("p1_device", newSettings.person1.deviceAddress)
             .putInt("p1_measurements_per_day", newSettings.person1.measurementsPerDay)
             .putString("p1_birth_date", newSettings.person1.birthDate)
+            .putBoolean("p1_auto_erase", newSettings.person1.autoEraseAfterSync)
             .putString("p2_name", newSettings.person2.name)
             .putInt("p2_sys_norm", newSettings.person2.systoleNormMax)
             .putInt("p2_dia_norm", newSettings.person2.diastoleNormMax)
             .putString("p2_device", newSettings.person2.deviceAddress)
             .putInt("p2_measurements_per_day", newSettings.person2.measurementsPerDay)
             .putString("p2_birth_date", newSettings.person2.birthDate)
+            .putBoolean("p2_auto_erase", newSettings.person2.autoEraseAfterSync)
             .putBoolean("auto_erase", newSettings.autoEraseAfterSync)
             .putBoolean("use_12_hour_format", newSettings.use12HourTimeFormat)
             .putBoolean("auto_backup_enabled", newSettings.autoBackupEnabled)
@@ -277,6 +282,10 @@ class BpRepository(
 
     suspend fun deleteMeasurement(id: Int) {
         bpDao.deleteMeasurementById(id)
+    }
+
+    suspend fun deleteMeasurementsForUser(userIndex: Int) {
+        bpDao.deleteMeasurementsForUser(userIndex)
     }
 
     suspend fun deleteAll() {
