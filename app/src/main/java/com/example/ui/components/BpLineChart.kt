@@ -342,7 +342,10 @@ fun BpLineChart(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
@@ -367,19 +370,6 @@ fun BpLineChart(
                                 color = CleanOnSurfaceVariant,
                                 letterSpacing = 1.1.sp
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                color = CleanSurfaceVariant,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = selectedTimeFrame.label,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleanPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
 
                             // "Heute" Icon wenn nicht im aktuellen Zeitraum
                             if (pageOffset != 0) {
@@ -402,17 +392,42 @@ fun BpLineChart(
                                 }
                             }
                         }
-                        Text(
-                            text = if (isExpanded) periodInfo.periodTitle else "Tippen zum Aufklappen",
-                            fontSize = 12.sp,
-                            color = CleanMutedText
-                        )
+                        // Custom logic for 2-line title display
+                        val titleLines = if (isExpanded) {
+                            when (selectedTimeFrame) {
+                                ChartTimeFrame.WEEK, ChartTimeFrame.MONTH -> {
+                                    val fullTitle = periodInfo.periodTitle
+                                    // Split logic: Try to find a natural break if possible, or just force 2 lines
+                                    if (fullTitle.contains("(")) {
+                                        val parts = fullTitle.split("(", limit = 2)
+                                        listOf(parts[0].trim(), "(" + parts[1].trim())
+                                    } else {
+                                        listOf(fullTitle) // fallback if unexpected format
+                                    }
+                                }
+                                else -> listOf(periodInfo.periodTitle)
+                            }
+                        } else {
+                            listOf("Tippen zum Aufklappen")
+                        }
+
+                        titleLines.forEach { line ->
+                            Text(
+                                text = line,
+                                fontSize = 12.sp,
+                                color = CleanMutedText,
+                                fontWeight = if (titleLines.size > 1 && line == titleLines[0]) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
                     }
                 }
 
-                IconButton(
-                    onClick = { isExpanded = !isExpanded },
-                    modifier = Modifier.testTag("btn_toggle_chart_expand")
+                // Arrow to indicate expand/collapse
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("btn_toggle_chart_expand"),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
