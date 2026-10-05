@@ -463,6 +463,7 @@ class MicrolifeBleManager(private val context: Context) {
     private var is12HourTimeFormat: Boolean = false
     private var isOnlyTimeSyncMode: Boolean = false
     private var isOnlyReadTimeMode: Boolean = false
+    private var deleteAfterSync: Boolean = false
     private var measurementRequested: Boolean = false
     private var timeSyncAckSent: Boolean = false
 
@@ -471,11 +472,13 @@ class MicrolifeBleManager(private val context: Context) {
         address: String,
         is12HourFormat: Boolean = false,
         onlyTimeSync: Boolean = false,
-        onlyReadTime: Boolean = false
+        onlyReadTime: Boolean = false,
+        deleteAfterSync: Boolean = false
     ) {
         this.is12HourTimeFormat = is12HourFormat
         this.isOnlyTimeSyncMode = onlyTimeSync
         this.isOnlyReadTimeMode = onlyReadTime
+        this.deleteAfterSync = deleteAfterSync
         this.isDataDownloadCompleted = false
         this.isErasingOrFinishing = false
         this.measurementRequested = false
@@ -684,7 +687,7 @@ class MicrolifeBleManager(private val context: Context) {
                 ) {
                     if (receivedBatch.isNotEmpty()) {
                         scope.launch {
-                            completeBatchAndFinish()
+                            completeBatchAndFinish(deleteAfterSync)
                         }
                     } else {
                         _syncStatus.value = BleSyncStatus.Error("Keine Messdaten vom Microlife / aponorm® Gerät empfangen.")
@@ -1880,10 +1883,10 @@ class MicrolifeBleManager(private val context: Context) {
                         parseAponormDataStream(currentBuffer, currentBuffer.size)
                     } else if (receivedBatch.isNotEmpty()) {
                         logDiagnose("✓ Alle Messwerte empfangen (${receivedBatch.size} Einträge). Schließe Synchronisation ab...")
-                        completeBatchAndFinish()
+                        completeBatchAndFinish(deleteAfterSync)
                     } else {
                         logDiagnose("ℹ️ Keine Messdaten im Datenstrom empfangen.")
-                        completeBatchAndFinish()
+                        completeBatchAndFinish(deleteAfterSync)
                     }
                 }
             }
@@ -1894,11 +1897,11 @@ class MicrolifeBleManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     suspend fun completeBatchAndEraseMemory() {
-        completeBatchAndFinish()
+        completeBatchAndFinish(true)
     }
 
     @SuppressLint("MissingPermission")
-    suspend fun completeBatchAndFinish() {
+    suspend fun completeBatchAndFinish(deleteAfterSync: Boolean) {
         if (_syncStatus.value is BleSyncStatus.Success || _syncStatus.value is BleSyncStatus.Error) {
             return
         }
@@ -1906,7 +1909,7 @@ class MicrolifeBleManager(private val context: Context) {
 
         val count = receivedBatch.size
         if (count > 0) {
-            logDiagnose("ℹ️ Gerätespeicher bleibt erhalten (Hardware-Ringspeicher überschreibt älteste Werte automatisch).")
+            logDiagnose("ℹ️ Gerätespeicher wird verarbeitet.")
             delay(200)
 
             // Nach Datum sortieren (neueste zuerst für UI)
@@ -1916,48 +1919,44 @@ class MicrolifeBleManager(private val context: Context) {
             _syncStatus.value = BleSyncStatus.Success(count)
             logDiagnose("🎉 SYNCHRONISATION ERFOLGREICH: $count echte Messungen übertragen.")
 
-            // Sende Uhrzeit-Synchronisation an das Gerät als Abschluss-Handshake
+            // Sende Uhrzeit-Synchronisation, Löschbefehl und Abschluss-Handshake
             bluetoothGatt?.let { gatt ->
-                logDiagnose("▶ SCHRITT 8: Sende Uhrzeit-Synchronisation an Gerätespeicher...")
+                logDiagnose("▶ SCHRITT 8: Sende Uhrzeit, optional Löschbefehl und schließe Sitzung...")
                 try {
-                    val localCal = Calendar.getInstance()
-                    val localStr = String.format("%02d.%02d.%04d %02d:%02d:%02d",
-                        localCal.get(Calendar.DAY_OF_MONTH),
-                        localCal.get(Calendar.MONTH) + 1,
-                        localCal.get(Calendar.YEAR),
-                        localCal.get(Calendar.HOUR_OF_DAY),
-                        localCal.get(Calendar.MINUTE),
-                        localCal.get(Calendar.SECOND)
+                    val cal = Calendar.getInstance()
+                    // 1. Das einzige, universelle Uhrzeit-Paket (12 Bytes)
+                    val payload = byteArrayOf(
+                        0x00.toByte(), 0x08.toByte(), 0x00.toByte(),
+                        (cal.get(Calendar.YEAR) % 100).toByte(),
+                        (cal.get(Calendar.MONTH) + 1).toByte(),
+                        cal.get(Calendar.DAY_OF_MONTH).toByte(),
+                        cal.get(Calendar.HOUR_OF_DAY).toByte(),
+                        cal.get(Calendar.MINUTE).toByte(),
+                        0x00.toByte()
                     )
+                    val timeCmd = buildMicrolifeCommand(0xFF.toByte(), payload)
+                    logDiagnose("   ├-- Sende universelles Uhrzeit-Paket: ${timeCmd.joinToString(" ") { "%02X".format(it) }}")
+                    sendPacket(gatt, timeCmd, writeNoResponse = true)
 
-                    // 1. Exakter Aponorm Lokalzeit-Befehl (Opcode 0x03, 12 Bytes)
-                    val localCmd = buildAponormLocalTimeCommand(localCal)
-                    val localHex = localCmd.joinToString(" ") { "%02X".format(it) }
-                    logDiagnose("   ├-- Sende Aponorm RTC-Uhrzeit: $localStr (Opcode 0x03) -> $localHex")
-                    sendPacket(gatt, localCmd, writeNoResponse = true)
+                    delay(250) // Kurze Pause für die RTC-Verarbeitung
 
-                    delay(200)
+                    // 2. SCHRITT: Die Weiche für das Löschen
+                    if (deleteAfterSync) {
+                        logDiagnose("   ├-- Löschen ist aktiv: Sende universellen Löschbefehl...")
+                        val deleteCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x05.toByte(), 0x00.toByte(), 0x4F.toByte())
+                        logDiagnose("   ├-- Löschbefehl: ${deleteCmd.joinToString(" ") { "%02X".format(it) }}")
+                        sendPacket(gatt, deleteCmd, writeNoResponse = true)
+                        delay(300) // Wichtig! Dem Gerät Zeit geben, das große "CL" anzuzeigen
+                    }
 
-                    // 2. Aponorm 11-Byte Zeit-Befehl (Opcode 0x08)
-                    val timeCmd11 = buildTimeCommand(headerByte = 0x31.toByte(), opcode = 0x08.toByte(), is12HourMode = false)
-                    val hexStr11 = timeCmd11.joinToString(" ") { "%02X".format(it) }
-                    logDiagnose("   ├-- Sende M1/A6 Zeit-Paket (11 Bytes): $hexStr11")
-                    sendPacket(gatt, timeCmd11, writeNoResponse = true)
-
-                    delay(200)
-
-                    // 3. Aponorm Header 0xFF Zeit-Befehl (Opcode 0x00)
-                    val ffCmd = buildAponormHeaderFFTimeCommand(localCal)
-                    val ffHex = ffCmd.joinToString(" ") { "%02X".format(it) }
-                    logDiagnose("   └-- Sende Header 0xFF Zeit-Paket: $ffHex")
-                    sendPacket(gatt, ffCmd, writeNoResponse = true)
+                    // 3. SCHRITT: Sitzung final schließen
+                    val closeCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x01.toByte(), 0x0F.toByte(), 0x5C.toByte())
+                    logDiagnose("   └-- Sende CN-Break (Stoppt Blinken): ${closeCmd.joinToString(" ") { "%02X".format(it) }}")
+                    sendPacket(gatt, closeCmd, writeNoResponse = true)
+                    delay(100)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Fehler beim Senden des Abschluss-Zeitpakets", e)
+                    Log.e(TAG, "Fehler beim Senden der Abschluss-Befehle", e)
                 }
-
-                // Dem Gerät Zeit geben, um die RTC im EEPROM zu fixieren
-                logDiagnose("⏳ Warte auf interne RTC-Speicherung im Aponorm Gerät...")
-                delay(2000)
             }
         } else {
             // Keine neuen Messungen (Gerätespeicher war bereits leer oder wurde gelöscht)
@@ -2120,7 +2119,7 @@ class MicrolifeBleManager(private val context: Context) {
             Log.w("Aponorm", "Der Speicher des Geräts ist leer.")
             logDiagnose("ℹ️ Der Speicher des Geräts ist leer (Länge: $totalLength Bytes).")
             scope.launch {
-                completeBatchAndFinish()
+                completeBatchAndFinish(deleteAfterSync)
             }
             return
         }
@@ -2175,7 +2174,7 @@ class MicrolifeBleManager(private val context: Context) {
         if (rawRecords.isEmpty()) {
             logDiagnose("ℹ️ Keine gespeicherten Messwerte im Gerätespeicher gefunden (Speicher ist leer).")
             scope.launch {
-                completeBatchAndFinish()
+                completeBatchAndFinish(deleteAfterSync)
             }
             return
         }
@@ -2339,7 +2338,7 @@ class MicrolifeBleManager(private val context: Context) {
         }
 
         scope.launch {
-            completeBatchAndFinish()
+            completeBatchAndFinish(deleteAfterSync)
         }
     }
 

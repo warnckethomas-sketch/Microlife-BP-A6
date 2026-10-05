@@ -534,87 +534,96 @@ fun HomeScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp, bottom = 24.dp)
         ) {
             // 1. PERSON SWITCHER TABS (Person 1 vs Person 2)
-            item {
-                Row(
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(CleanSurfaceVariant)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val isP1 = settings.selectedUserIndex == 1
+                val isP2 = settings.selectedUserIndex == 2
+
+                // Person 1 Button
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(CleanSurfaceVariant)
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isP1) CleanPrimary else Color.Transparent)
+                        .clickable { viewModel.selectUser(1) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    val isP1 = settings.selectedUserIndex == 1
-                    val isP2 = settings.selectedUserIndex == 2
-
-                    // Person 1 Button
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isP1) CleanPrimary else Color.Transparent)
-                            .clickable { viewModel.selectUser(1) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = settings.person1.name,
-                                fontSize = 13.sp,
-                                fontWeight = if (isP1) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = settings.person1.name,
+                            fontSize = 13.sp,
+                            fontWeight = if (isP1) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
+                }
 
-                    Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(4.dp))
 
-                    // Person 2 Button
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isP2) CleanPrimary else Color.Transparent)
-                            .clickable { viewModel.selectUser(2) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = settings.person2.name,
-                                fontSize = 13.sp,
-                                fontWeight = if (isP2) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                // Person 2 Button
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isP2) CleanPrimary else Color.Transparent)
+                        .clickable { viewModel.selectUser(2) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = settings.person2.name,
+                            fontSize = 13.sp,
+                            fontWeight = if (isP2) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(0.dp))
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = 16.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
 
             // 2. SPEICHER- & ÜBERTRAGUNGS-HINWEIS (Basierend auf Messungen/Tag & 80er Gerätespeicher-Schwellenwert)
             item {
@@ -1531,6 +1540,7 @@ fun HomeScreen(
             }
         }
     }
+}
 }
 
 private data class MonthGroup(

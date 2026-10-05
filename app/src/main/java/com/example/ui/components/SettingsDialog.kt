@@ -1007,6 +1007,36 @@ fun SettingsDialog(
                             ) {
                                 HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
 
+                                // Auto-Löschen Switch
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Automatisches Löschen nach Sync",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = darkTextColor
+                                        )
+                                        Text(
+                                            text = "Löscht den Gerätespeicher nach erfolgreicher Übertragung.",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = darkMutedColor
+                                        )
+                                    }
+                                    Switch(
+                                        checked = autoErase,
+                                        onCheckedChange = { autoErase = it },
+                                        modifier = Modifier.testTag("switch_auto_erase")
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
+                                Spacer(modifier = Modifier.height(2.dp))
+
                                 Text(
                                     text = "Diagramm-Skala (Maximalwert):",
                                     fontWeight = FontWeight.Bold,

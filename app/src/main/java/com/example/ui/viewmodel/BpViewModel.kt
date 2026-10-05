@@ -117,7 +117,7 @@ class BpViewModel(
 
     fun finishSyncAndClearDeviceMemory(context: Context? = null) {
         viewModelScope.launch {
-            bleManager.completeBatchAndEraseMemory()
+            bleManager.completeBatchAndFinish(settings.value.autoEraseAfterSync)
             val ctx = context ?: this@BpViewModel.context
             if (ctx != null) {
                 DatabaseBackupManager.performAutoBackupIfEnabled(ctx, repository)
