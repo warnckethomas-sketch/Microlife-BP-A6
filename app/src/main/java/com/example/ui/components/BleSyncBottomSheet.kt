@@ -70,6 +70,7 @@ import com.example.ble.BleSyncStatus
 import com.example.ble.DiscoveredBleDevice
 import com.example.ui.theme.CleanBackground
 import com.example.ui.theme.CleanMutedText
+import com.example.ui.theme.CleanNormContainer
 import com.example.ui.theme.CleanNormText
 import com.example.ui.theme.CleanOnPrimary
 import com.example.ui.theme.CleanOnSurface
@@ -108,6 +109,14 @@ fun BleSyncBottomSheet(
         }
     }
 
+    // Automatisches Schließen des Fensters nach erfolgreicher Synchronisation / Speicherlöschung
+    androidx.compose.runtime.LaunchedEffect(syncStatus) {
+        if (syncStatus is BleSyncStatus.Success) {
+            kotlinx.coroutines.delay(2200)
+            onDismiss()
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -129,7 +138,40 @@ fun BleSyncBottomSheet(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 18.dp)
             ) {
-                // Title Header
+                // Dynamischer Header je nach Sync-Status
+                val headerTitle = when (syncStatus) {
+                    is BleSyncStatus.Success -> if (syncStatus.memoryErased) "Speicher gelöscht & Fertig" else "Synchronisation erfolgreich"
+                    is BleSyncStatus.ErasingMemory -> "3. Speicher wird gelöscht..."
+                    is BleSyncStatus.Downloading -> "2. Messdaten-Download"
+                    is BleSyncStatus.TimeSyncing -> "1. Uhrzeit-Synchronisation"
+                    is BleSyncStatus.Connecting -> "Verbinde mit Gerät..."
+                    is BleSyncStatus.Scanning -> "Geräte suchen..."
+                    is BleSyncStatus.Error -> "Verbindungsfehler"
+                    else -> "Gerät verbinden"
+                }
+                val headerSubtitle = when (syncStatus) {
+                    is BleSyncStatus.Success -> if (syncStatus.memoryErased) "Erfolgreich abgeschlossen • Speicher gelöscht" else "Erfolgreich abgeschlossen"
+                    is BleSyncStatus.ErasingMemory -> "Gerätespeicher im EEPROM wird gelöscht"
+                    is BleSyncStatus.Downloading -> "Messwerte werden übertragen"
+                    is BleSyncStatus.TimeSyncing -> "Uhrzeit wird abgeglichen"
+                    is BleSyncStatus.Connecting -> "Bluetooth LE Verbindung wird aufgebaut"
+                    is BleSyncStatus.Error -> "Vorgang abgebrochen"
+                    else -> "aponorm® & Microlife® Bluetooth"
+                }
+                val headerIcon = when (syncStatus) {
+                    is BleSyncStatus.Success -> Icons.Default.CheckCircle
+                    is BleSyncStatus.ErasingMemory -> Icons.Default.DeleteSweep
+                    is BleSyncStatus.Downloading -> Icons.Default.Bluetooth
+                    is BleSyncStatus.TimeSyncing -> Icons.Default.Schedule
+                    is BleSyncStatus.Error -> Icons.Default.Close
+                    else -> Icons.Default.BluetoothSearching
+                }
+                val headerIconTint = when (syncStatus) {
+                    is BleSyncStatus.Success -> CleanNormText
+                    is BleSyncStatus.Error -> MaterialTheme.colorScheme.error
+                    else -> CleanPrimary
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -144,22 +186,22 @@ fun BleSyncBottomSheet(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.BluetoothSearching,
+                                imageVector = headerIcon,
                                 contentDescription = "BLE",
-                                tint = CleanPrimary,
+                                tint = headerIconTint,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Gerät verbinden",
-                                fontSize = 18.sp,
+                                text = headerTitle,
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CleanOnSurface
                             )
                             Text(
-                                text = "aponorm® & Microlife® Bluetooth",
+                                text = headerSubtitle,
                                 fontSize = 12.sp,
                                 color = CleanMutedText
                             )
@@ -472,37 +514,69 @@ fun BleSyncBottomSheet(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Success",
                             tint = CleanNormText,
-                            modifier = Modifier.size(52.dp)
+                            modifier = Modifier.size(54.dp)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "Synchronisation erfolgreich!",
-                            fontSize = 17.sp,
+                            text = if (syncStatus.memoryErased) "Speicher gelöscht & erledigt!" else "Synchronisation erfolgreich!",
+                            fontSize = 17.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = CleanNormText
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        if (syncStatus.memoryErased) {
+                            Surface(
+                                color = CleanNormContainer,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteSweep,
+                                        contentDescription = null,
+                                        tint = CleanNormText,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Gerätespeicher im EEPROM gelöscht ('CL')",
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CleanNormText
+                                    )
+                                }
+                            }
+                        }
                         Text(
                             text = when {
                                 syncStatus.newlyInserted > 0 ->
                                     "${syncStatus.newlyInserted} neue Messwerte übertragen"
                                 syncStatus.newlyInserted == 0 ->
-                                    "Keine neuen Messwerte übertragen"
+                                    "Keine neuen Messwerte (Gerätespeicher war bereits synchronisiert)"
                                 else ->
-                                    "${syncStatus.count} neue Messwerte übertragen"
+                                    "${syncStatus.count} Messwerte erfolgreich importiert"
                             },
                             textAlign = TextAlign.Center,
                             fontSize = 13.sp,
                             color = CleanMutedText
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Fenster schließt automatisch in 2 Sekunden...",
+                            fontSize = 11.5.sp,
+                            color = CleanMutedText.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
                         Button(
                             onClick = onDismiss,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = CleanPrimary, contentColor = CleanOnPrimary),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Fertig", fontWeight = FontWeight.Bold)
+                            Text("Jetzt schließen", fontWeight = FontWeight.Bold)
                         }
                     }
                 }

@@ -78,4 +78,44 @@ class MicrolifeProtocolTest {
         }
         assertEquals((sum12 and 0xFF).toByte(), cmd12[cmd12.size - 1])
     }
+
+    @Test
+    fun testGenerateExactTimeCommand_FormatAndChecksum() {
+        val manager = getManager()
+        val cmd = manager.generateExactTimeCommand()
+        assertEquals(12, cmd.size)
+        assertEquals(0x4D.toByte(), cmd[0]) // 'M'
+        assertEquals(0xFF.toByte(), cmd[1]) // Header FF
+        assertEquals(0x00.toByte(), cmd[2])
+        assertEquals(0x08.toByte(), cmd[3]) // Length 8
+        assertEquals(0x00.toByte(), cmd[4]) // Opcode 0x00
+        assertEquals(0x00.toByte(), cmd[10]) // Seconds = 00
+
+        var sum = 0
+        for (i in 0 until cmd.size - 1) {
+            sum += (cmd[i].toInt() and 0xFF)
+        }
+        assertEquals((sum and 0xFF).toByte(), cmd[cmd.size - 1])
+    }
+
+    @Test
+    fun testWiresharkCommands_ChecksumValidation() {
+        // Wireshark Frame 1448 / 1425: Standby / Disconnect Command
+        // 4D FF 00 02 04 52
+        val disconnectCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x04.toByte(), 0x52.toByte())
+        var sumDisconnect = 0
+        for (i in 0 until disconnectCmd.size - 1) {
+            sumDisconnect += (disconnectCmd[i].toInt() and 0xFF)
+        }
+        assertEquals(0x52.toByte(), (sumDisconnect and 0xFF).toByte())
+
+        // Wireshark Frame vor 1425: Delete / Clear Memory Command
+        // 4D FF 00 02 03 51
+        val deleteCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x03.toByte(), 0x51.toByte())
+        var sumDelete = 0
+        for (i in 0 until deleteCmd.size - 1) {
+            sumDelete += (deleteCmd[i].toInt() and 0xFF)
+        }
+        assertEquals(0x51.toByte(), (sumDelete and 0xFF).toByte())
+    }
 }

@@ -59,16 +59,10 @@ class BpViewModel(
                         bleManager.logDiagnose("ℹ️ Keine neuen Messwerte (bereits vorhanden).")
                     }
 
-                    // Automatische Datensicherung direkt nach dem Datentransfer anstoßen
+                    // Automatische Datensicherung direkt nach dem Datentransfer anstoßen (im Hintergrund ohne BLE-Log)
                     context?.let { ctx ->
                         if (settings.value.autoBackupEnabled) {
-                            bleManager.logDiagnose("📦 Starte automatische Datensicherung nach Datentransfer...")
-                            val backupResult = DatabaseBackupManager.performAutoBackupIfEnabled(ctx, repository)
-                            if (backupResult.success) {
-                                bleManager.logDiagnose("✓ Automatische Sicherung erfolgreich: ${backupResult.message}")
-                            } else {
-                                bleManager.logDiagnose("ℹ️ Automatische Sicherung: ${backupResult.message}")
-                            }
+                            DatabaseBackupManager.performAutoBackupIfEnabled(ctx, repository)
                         }
                     }
                 }
@@ -88,7 +82,8 @@ class BpViewModel(
         if (activeDevice.isNotBlank()) {
             bleManager.connectToDevice(
                 address = activeDevice,
-                is12HourFormat = settings.value.use12HourTimeFormat
+                is12HourFormat = settings.value.use12HourTimeFormat,
+                deleteAfterSync = settings.value.autoEraseAfterSync
             )
         } else {
             bleManager.startScan()
@@ -111,7 +106,8 @@ class BpViewModel(
         }
         bleManager.connectToDevice(
             address = address,
-            is12HourFormat = settings.value.use12HourTimeFormat
+            is12HourFormat = settings.value.use12HourTimeFormat,
+            deleteAfterSync = settings.value.autoEraseAfterSync
         )
     }
 

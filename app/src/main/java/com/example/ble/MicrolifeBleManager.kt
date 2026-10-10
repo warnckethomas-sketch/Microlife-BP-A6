@@ -55,7 +55,7 @@ sealed class BleSyncStatus {
     object TimeSyncing : BleSyncStatus()
     data class Downloading(val current: Int, val total: Int) : BleSyncStatus()
     object ErasingMemory : BleSyncStatus()
-    data class Success(val count: Int, val newlyInserted: Int = -1) : BleSyncStatus()
+    data class Success(val count: Int, val newlyInserted: Int = -1, val memoryErased: Boolean = false) : BleSyncStatus()
     data class Error(val message: String) : BleSyncStatus()
 }
 
@@ -71,14 +71,22 @@ class MicrolifeBleManager(private val context: Context) {
     companion object {
         private const val TAG = "MicrolifeBleManager"
 
+        // Original Microlife / Ideabus Protokoll-Konstanten (aus MyBluetoothLE)
+        const val HEADER_4D = "4D"
+        const val DEVICE_CODE_BPM_SEND = "FF"
+        const val DEVICE_CODE_BPM_REPLY = "31"
+        const val IDEABUS_TIME_DELAY_MS = 600L
+
         // Propriitäre UUIDs der Microlife BP3GU1-68 Serie (aponorm® Basis Plus BT / Basis Control PLUS BT / Connected Health+)
         val SERVICE_UUID: UUID = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
-        val TX_CHAR_UUID: UUID = UUID.fromString("0000fff1-0000-1000-8000-00805f9b34fb") // Vom Gerät lesen (Notifications/Indications)
-        val RX_CHAR_UUID: UUID = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb") // Zum Gerät schreiben
+        val TX_CHAR_UUID: UUID = UUID.fromString("0000fff1-0000-1000-8000-00805f9b34fb") // Handle 0x0062 (Notifications)
+        val RX_CHAR_UUID: UUID = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb") // Handle 0x0065 (Write/Commands)
         val WRTCMD_CHAR_UUID: UUID = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb") // Aponorm Schreib-Kanal
 
-        // Client Characteristic Configuration Descriptor (CCCD)
+        // Client Characteristic Configuration Descriptor (CCCD) - Handle 0x0063
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        private val WRITE_CHAR_UUID = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb")
 
         // Alternative Microlife / Aponorm UART UUIDs
         val APONORM_FFE0_SERVICE_UUID: UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
@@ -150,8 +158,11 @@ class MicrolifeBleManager(private val context: Context) {
     private val dataBuffer = ByteArrayOutputStream()
     private var expectedTotalSize = 0
     private val receivedBatch = mutableListOf<BpMeasurement>()
+    @Volatile
     private var isDataDownloadCompleted = false
     private var isErasingOrFinishing = false
+    private var lastPacketBytes: ByteArray? = null
+    private var lastPacketTime = 0L
 
     private val commandQueue: Queue<Runnable> = LinkedList()
     private var isCommandPending = false
@@ -237,6 +248,15 @@ class MicrolifeBleManager(private val context: Context) {
     private enum class BleState {
         IDLE, CONNECTED, NOTIFICATIONS_ENABLED, UNLOCKED, USER_SELECTED, TIME_SYNCED, DOWNLOADING
     }
+
+    @Volatile
+    private var currentStep = -1 // Tracker für die Befehlskette: 1 = Löschen (Opcode 0x03), 4 = Standby (Opcode 0x04)
+
+    @Volatile
+    private var lastInsertedCount: Int = -1
+
+    @Volatile
+    private var isMemoryErased: Boolean = false
 
     @Volatile
     private var currentState = BleState.IDLE
@@ -466,6 +486,8 @@ class MicrolifeBleManager(private val context: Context) {
     private var deleteAfterSync: Boolean = false
     private var measurementRequested: Boolean = false
     private var timeSyncAckSent: Boolean = false
+    @Volatile
+    private var isSyncCompleted: Boolean = false
 
     @SuppressLint("MissingPermission")
     fun connectToDevice(
@@ -481,6 +503,9 @@ class MicrolifeBleManager(private val context: Context) {
         this.deleteAfterSync = deleteAfterSync
         this.isDataDownloadCompleted = false
         this.isErasingOrFinishing = false
+        this.lastPacketBytes = null
+        this.lastPacketTime = 0L
+        this.isSyncCompleted = false
         this.measurementRequested = false
         this.timeSyncAckSent = false
         stopScan()
@@ -614,7 +639,9 @@ class MicrolifeBleManager(private val context: Context) {
 
             if (writeNoResponse) {
                 handler.postDelayed({
-                    commandCompleted()
+                    if (realGattConnected) {
+                        commandCompleted()
+                    }
                 }, 300)
             }
         } else {
@@ -629,6 +656,8 @@ class MicrolifeBleManager(private val context: Context) {
         @SuppressLint("MissingPermission")
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                bluetoothGatt = gatt // Aktive GATT-Verbindung sichern
+                isSyncCompleted = false // Reset bei Neuverbindung
                 realGattConnected = true
                 currentState = BleState.CONNECTED
                 handler.removeCallbacksAndMessages(null)
@@ -670,6 +699,7 @@ class MicrolifeBleManager(private val context: Context) {
 
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 logDiagnose("ℹ️ Verbindung beendet (Status: $status).")
+                currentStep = -1
                 commandQueue.clear()
                 isCommandPending = false
                 realGattConnected = false
@@ -685,7 +715,13 @@ class MicrolifeBleManager(private val context: Context) {
                 if (_syncStatus.value !is BleSyncStatus.Success &&
                     _syncStatus.value !is BleSyncStatus.Error
                 ) {
-                    if (receivedBatch.isNotEmpty()) {
+                    if (isSyncCompleted) {
+                        _syncStatus.value = BleSyncStatus.Success(
+                            count = receivedBatch.size,
+                            newlyInserted = lastInsertedCount,
+                            memoryErased = isMemoryErased
+                        )
+                    } else if (receivedBatch.isNotEmpty()) {
                         scope.launch {
                             completeBatchAndFinish(deleteAfterSync)
                         }
@@ -779,7 +815,28 @@ class MicrolifeBleManager(private val context: Context) {
             logDiagnose("\n=== GATT-ANALYSE VOLLSTÄNDIG ===")
             logDiagnose("Fahre mit der automatisierten Protokollkette fort...\n")
 
-            // Normaler Modus (Messungen auslesen oder Uhrzeit einstellen): Schritt 3 in die Warteschlange
+            queueOperation {
+                logDiagnose("▶ ORIGINAL-APP SCHRITT: Sende Find Information Request auf Handle 0x0063...")
+                
+                // Ermittle den Dienst und die Charakteristik für das Handle 0x0063
+                val service = gatt.getService(UUID.fromString("0000fff3-0000-1000-8000-00805f9b34fb"))
+                val characteristic = service?.getCharacteristic(UUID.fromString("0000fff4-0000-1000-8000-00805f9b34fb"))
+                val descriptor = characteristic?.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+                
+                if (descriptor != null) {
+                    // Dieser Befehl zwingt Android, den Deskriptor-Status (Find Information) anzufragen
+                    val initiated = gatt.readDescriptor(descriptor)
+                    if (!initiated) {
+                        Log.w(TAG, "Information Request: gatt.readDescriptor gab false zurück.")
+                        commandCompleted()
+                    }
+                } else {
+                    Log.e(TAG, "Information Request gescheitert: Descriptor nicht gefunden.")
+                    commandCompleted() // Verhindert das Hängenbleiben der Queue
+                }
+            }
+
+            // Erst DANACH folgen die Benachrichtigungen
             queueOperation {
                 logDiagnose("▶ SCHRITT 3: Aktiviere Benachrichtigungen (CCCD Descriptor)...")
                 enableNotifications(gatt)
@@ -842,33 +899,120 @@ class MicrolifeBleManager(private val context: Context) {
         }
 
         @SuppressLint("MissingPermission")
+        override fun onDescriptorRead(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (descriptor.uuid == UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")) {
+                logDiagnose("✓ Original-App Handshake auf Handle 0x0063 (Information Request) erfolgreich verarbeitet (Status=$status).")
+            }
+            // Wichtig, damit die Queue den nächsten Befehl (enableNotifications) freigibt!
+            commandCompleted()
+        }
+
+        @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             commandCompleted()
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 logDiagnose("⚠️ onDescriptorWrite fehlgeschlagen: status=$status")
                 return
             }
-            logDiagnose("✓ Deskriptor (CCCD) erfolgreich aktiviert.")
-            
-            // Fall 1: Reine Uhrzeit-Auslesung (Analyse-Modus)
-            if (isOnlyReadTimeMode) {
-                isOnlyReadTimeMode = false
-                logDiagnose("▶ Analysiere Geräte-Uhrzeit & interner RTC-Status...")
-                sendReadDeviceTime(gatt)
-                return
-            }
+            logDiagnose("✓ CCCD freigegeben (Frame 1427). Starte 500ms CCCD-Bremse für Samsung A55...")
 
-            // Fall 2: Reiner Uhrzeit-Synchronisationsmodus (über Button "Uhr synchronisieren")
-            if (isOnlyTimeSyncMode) {
-                logDiagnose("▶ Reiner Uhrzeit-Modus: Starte Uhrzeitsynchronisation (Opcode 0x03, Basisjahr 2022)...")
-                sendTimeSynchronization(gatt)
-                return
-            }
+            // 1. Zuerst stellen wir sicher, dass beim Start der Kette alle Flags im richtigen Zustand sind!
+            isSyncCompleted = false
+            isDataDownloadCompleted = false
 
-            // Fall 3: Normaler Messdaten-Download (Reiner Datenstrom ohne Uhrzeitbefehl)
-            logDiagnose("▶ Stream-Kanal bereit. Fordere Messdaten direkt vom Aponorm Gerät an (reiner Datenstrom)...")
-            _syncStatus.value = BleSyncStatus.Downloading(0, 1)
-            sendPacket(gatt, CMD_GET_MEASUREMENTS, writeNoResponse = true)
+            scope.launch {
+                delay(500) // Wichtig gegen Kollisionen bei blockierter 23-Byte MTU
+
+                val setTimeCmd = buildTimeCommand(headerByte = 0xFF.toByte(), opcode = 0x08.toByte(), useBcd = false, is12HourMode = false)
+                val localTimeStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date())
+                if (isOnlyReadTimeMode) {
+                    logDiagnose("▶ Reine Geräte-Uhrzeit-Abfrage: Lese interne RTC aus...")
+                    _syncStatus.value = BleSyncStatus.TimeSyncing
+                    sendReadDeviceTime(gatt)
+                } else if (isOnlyTimeSyncMode) {
+                    logDiagnose("▶ Reine Uhrzeit-Einstellung (Original MyBluetoothLE Taktung):")
+                    logDiagnose("   ├-- Sende Smartphone-Ortszeit ($localTimeStr, WRITE_NO_RESPONSE)...")
+                    _syncStatus.value = BleSyncStatus.TimeSyncing
+                    currentStep = 0
+                    logDiagnose("   ├-- Sende Uhrzeit-Paket: ${setTimeCmd.joinToString(" ") { "%02X".format(it) }}")
+                    sendSafeUniversalCommand(gatt, setTimeCmd, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+                    logDiagnose("   ├-- Warte 600ms Gerätetakt (MyWriteThread TIME=600)...")
+                    delay(IDEABUS_TIME_DELAY_MS)
+                    logDiagnose("✓ Uhrzeit erfolgreich im Gerät synchronisiert ($localTimeStr).")
+
+                    // Frame 1448 Endbefehl senden, damit das Gerät nicht auf "FL" läuft
+                    logDiagnose("   └-- Sende originalen Frame 1448 Endbefehl (4D FF 00 02 04 52)...")
+                    val rxChar = findWriteCharacteristic(gatt)
+                    if (rxChar != null) {
+                        currentStep = 4
+                        val disconnectCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x04.toByte(), 0x52.toByte())
+                        rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            gatt.writeCharacteristic(rxChar, disconnectCmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            rxChar.value = disconnectCmd
+                            @Suppress("DEPRECATION")
+                            rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                            @Suppress("DEPRECATION")
+                            gatt.writeCharacteristic(rxChar)
+                        }
+                    }
+                    _syncStatus.value = BleSyncStatus.Success(0)
+                    delay(1200)
+                    logDiagnose("✓ Trenne Verbindung sauber (Display friert ein, Uhrzeit steht still, kein Blinken mehr)...")
+                    currentStep = -1
+                    disconnect(gatt)
+                } else {
+                    // Statemachine initialisieren
+                    isSyncCompleted = false
+                    isDataDownloadCompleted = false
+                    measurementRequested = false
+                    
+                    logDiagnose("▶ Starte Datenübertragung (Original MyBluetoothLE Taktung):")
+                    
+                    // Wir nutzen die originale Methode generateExactTimeCommand(), 
+                    // die exakt das im Smali-Code gefundene "buildCmdString" mit 4DFF und %04x nachbaut!
+                    val setTimeCmd = generateExactTimeCommand()
+                    val localTimeStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date())
+                    
+                    logDiagnose("   ├-- Schritt 1: Sende Uhrzeit ($localTimeStr, WRITE_NO_RESPONSE): ${setTimeCmd.joinToString(" ") { "%02X".format(it) }}")
+                    _syncStatus.value = BleSyncStatus.Downloading(0, 1)
+                    currentStep = 2
+                    
+                    // Uhrzeit direkt auf den Kanal schreiben
+                    val rxChar = findWriteCharacteristic(gatt)
+                    if (rxChar != null) {
+                        rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            gatt.writeCharacteristic(rxChar, setTimeCmd, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+                        } else {
+                            rxChar.value = setTimeCmd
+                            gatt.writeCharacteristic(rxChar)
+                        }
+                    }
+
+                    logDiagnose("   ├-- Warte 600ms Gerätetakt (MyWriteThread TIME=600)...")
+                    
+                    // Nach exakt 600ms (MyWriteThread.TIME) fordern wir die Messdaten an
+                    handler.postDelayed({
+                        if (!isSyncCompleted && !isDataDownloadCompleted) {
+                            dataBuffer.reset()
+                            expectedTotalSize = 0
+                            logDiagnose("   └-- Schritt 2: Fordere Messdaten an (CMD_GET_MEASUREMENTS, WRITE_NO_RESPONSE)...")
+                            
+                            if (rxChar != null) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    gatt.writeCharacteristic(rxChar, CMD_GET_MEASUREMENTS, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+                                } else {
+                                    rxChar.value = CMD_GET_MEASUREMENTS
+                                    gatt.writeCharacteristic(rxChar)
+                                }
+                            }
+                        }
+                    }, 600)
+                }
+            }
         }
 
         @SuppressLint("MissingPermission")
@@ -895,26 +1039,28 @@ class MicrolifeBleManager(private val context: Context) {
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             val charUuid = characteristic.uuid
             val charUuidStr = charUuid.toString().lowercase()
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                logDiagnose("✓ Befehl quittiert auf $charUuid (Status: 0)")
-                if (charUuidStr.contains("fff2") || charUuidStr.contains("fff5")) {
-                    if (isOnlyTimeSyncMode) {
-                        if (!timeSyncAckSent) {
-                            timeSyncAckSent = true
-                            logDiagnose("✓ Uhrzeit-Befehl erfolgreich an das Aponorm Gerät übertragen.")
-                            logDiagnose("▶ Warte auf Abschluss der Geräte-Verarbeitung (Display-Uhrzeit / Piepton)...")
-                            _syncStatus.value = BleSyncStatus.Success(0)
-                            // Nicht sofort hart trennen, damit das Gerät nicht mit 'FL' abbricht, sondern die RTC speichert!
-                            handler.postDelayed({
-                                if (bluetoothGatt != null && realGattConnected) {
-                                    logDiagnose("ℹ️ Beende Zeit-Einstellungssitzung regulär.")
-                                    disconnect()
-                                }
-                            }, 8000)
-                        }
-                    }
+            val isWriteChar = charUuidStr == "0000fff2-0000-1000-8000-00805f9b34fb" || characteristic.uuid == RX_CHAR_UUID
+
+            if (status == BluetoothGatt.GATT_SUCCESS && isWriteChar) {
+                Log.d(TAG, "✓ Characteristic-Write bestätigt ($charUuid, status=0).")
+                logDiagnose("✓ Characteristic-Write bestätigt ($charUuid).")
+
+                if (currentStep == 1) {
+                    logDiagnose("✓ Löschbefehl (Opcode 0x03) quittiert: 'CL' wird im EEPROM verarbeitet. Warte 1400ms vor Standby-Befehl...")
+                    currentStep = -1
+                    isMemoryErased = true
+                    _syncStatus.value = BleSyncStatus.Success(
+                        count = receivedBatch.size,
+                        newlyInserted = lastInsertedCount,
+                        memoryErased = true
+                    )
+                    handler.postDelayed({
+                        closeAndDisconnect(gatt, characteristic)
+                    }, 1400)
+                } else if (currentStep == 4) {
+                    logDiagnose("✓ Standby-Befehl (Frame 1448/1425, Opcode 0x04) vom Gerät bestätigt! Sitzung wird geräteseitig beendet...")
                 }
-            } else {
+            } else if (status != BluetoothGatt.GATT_SUCCESS) {
                 logDiagnose("⚠️ onCharacteristicWrite: status=$status (char=$charUuid)")
             }
             commandCompleted()
@@ -943,6 +1089,14 @@ class MicrolifeBleManager(private val context: Context) {
         ) {
             if (packet.isEmpty()) return
 
+            val now = System.currentTimeMillis()
+            if (lastPacketBytes != null && lastPacketBytes!!.contentEquals(packet) && (now - lastPacketTime) < 150L) {
+                Log.d(TAG, "Ignoriere doppelt getriggerten System-GATT-Callback (Inhalt identisch innerhalb von 150ms)")
+                return
+            }
+            lastPacketBytes = packet
+            lastPacketTime = now
+
             val charUuidStr = characteristic.uuid.toString().lowercase()
             if (charUuidStr == "0000fff1-0000-1000-8000-00805f9b34fb" ||
                 charUuidStr == "0000ffe1-0000-1000-8000-00805f9b34fb" ||
@@ -950,6 +1104,40 @@ class MicrolifeBleManager(private val context: Context) {
             ) {
                 val hexString = packet.joinToString(" ") { "%02X".format(it) }
                 logDiagnose("RX <- $hexString (${packet.size} Bytes von ${characteristic.uuid})")
+
+                // SCHRITT 4: Abfangen von Paket 295 (Gerät meldet: Speicher gelöscht)
+                if (packet.size >= 2 && packet[0] == 0x4D.toByte() && packet[1] == 0x81.toByte()) {
+                    logDiagnose("🎉 Paket 295 empfangen! Gerät bestätigt erfolgreiches Löschen (4D 81).")
+                    isMemoryErased = true
+                    _syncStatus.value = BleSyncStatus.Success(
+                        count = receivedBatch.size,
+                        newlyInserted = lastInsertedCount,
+                        memoryErased = true
+                    )
+                    scope.launch {
+                        delay(200)
+                        closeAndDisconnect(gatt, characteristic)
+                    }
+                    return
+                }
+
+                // Erkennung des offiziellen Datenendes aus dem Log (Bytes: 1A 0B)
+                if (packet.size == 2 && packet[0] == 0x1A.toByte() && packet[1] == 0x0B.toByte()) {
+                    logDiagnose("▶ Offizielles Datenende (1A 0B) erreicht. Starte Nachbearbeitung...")
+                    scheduleStreamFinish()
+                    return
+                }
+
+                // Reine Uhrzeit-Leseabfrage
+                if (isOnlyReadTimeMode && packet.size >= 5 && packet[4] == 0xFB.toByte()) {
+                    logDiagnose("✓ Geräte-Uhrzeit empfangen. Beende Sitzung sauber nach 200 ms...")
+                    _syncStatus.value = BleSyncStatus.Success(0)
+                    scope.launch {
+                        delay(200)
+                        closeAndDisconnect(gatt, characteristic)
+                    }
+                    return
+                }
 
                 // Protokoll-Analyse für empfangene Microlife/Aponorm Pakete ('M' = 0x4D)
                 if (packet.isNotEmpty() && packet[0] == 0x4D.toByte()) {
@@ -967,7 +1155,7 @@ class MicrolifeBleManager(private val context: Context) {
                     dataBuffer.reset()
                     expectedTotalSize = 0
                     _syncStatus.value = BleSyncStatus.Downloading(0, 1)
-                    sendPacket(gatt, CMD_GET_MEASUREMENTS, writeNoResponse = true)
+                    sendSafeUniversalCommand(gatt, CMD_GET_MEASUREMENTS, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
                     return
                 }
 
@@ -1003,7 +1191,7 @@ class MicrolifeBleManager(private val context: Context) {
                         dataBuffer.reset()
                         expectedTotalSize = 0
                         _syncStatus.value = BleSyncStatus.Downloading(0, 1)
-                        sendPacket(gatt, CMD_GET_MEASUREMENTS, writeNoResponse = true)
+                        sendSafeUniversalCommand(gatt, CMD_GET_MEASUREMENTS, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
                         return
                     }
 
@@ -1586,11 +1774,7 @@ class MicrolifeBleManager(private val context: Context) {
     }
 
     /**
-     * Sendet die vollständige Microlife / Aponorm Zeit-Synchronisations-Sequenz:
-     * 1. Aponorm 12-Byte Lokalzeit-Paket (Opcode 0x03): [0x4D, 0x31, 0x00, 0x07, 0x03, YY, MM, DD, HH, MI, SS, CS]
-     * 2. Aponorm 11-Byte M1/A6 Zeit-Paket (Opcode 0x08): [0x4D, 0x31, 0x00, 0x06, 0x08, YY, MM, DD, HH, MI, CS]
-     * 3. Aponorm 12-Byte Header 0xFF Zeit-Paket (Opcode 0x00): [0x4D, 0xFF, 0x00, 0x08, 0x00, YY, MM, DD, HH, MI, SS, CS]
-     * 4. Microlife 13-Byte Zeit-Paket (Header 0xFF, Opcode 0xFE): [0x4D, 0xFF, 0x00, 0x09, YY, MM, DD, HH, MI, SS, 0x00, 0xFE, CS]
+     * Sendet den universellen Microlife / Aponorm Zeit-Synchronisations-Befehl nach MyBluetoothLE (WRITE_NO_RESPONSE, 600ms Delay).
      */
     @SuppressLint("MissingPermission")
     fun sendTimeSynchronization(gatt: BluetoothGatt? = bluetoothGatt) {
@@ -1601,61 +1785,37 @@ class MicrolifeBleManager(private val context: Context) {
         }
 
         _syncStatus.value = BleSyncStatus.TimeSyncing
-        val writeChar = activeGatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID)
-            ?: findWriteCharacteristic(activeGatt)
-
-        if (writeChar == null) {
-            logDiagnose("❌ Schreibkanal FFF2 nicht gefunden!")
-            return
+        currentStep = 0
+        val setTimeCmd = generateExactTimeCommand()
+        val localTimeStr = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date())
+        logDiagnose("▶ Sende Smartphone-Ortszeit ($localTimeStr, WRITE_NO_RESPONSE): ${setTimeCmd.joinToString(" ") { "%02X".format(it) }}")
+        sendSafeUniversalCommand(activeGatt, setTimeCmd, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+        logDiagnose("   ├-- Warte 600ms Gerätetakt (MyWriteThread TIME=600)...")
+        scope.launch {
+            delay(IDEABUS_TIME_DELAY_MS)
+            logDiagnose("✓ Uhrzeit im Gerät erfolgreich synchronisiert ($localTimeStr).")
+            val rxChar = findWriteCharacteristic(activeGatt)
+            if (rxChar != null) {
+                currentStep = 4
+                val disconnectCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x04.toByte(), 0x52.toByte())
+                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    activeGatt.writeCharacteristic(rxChar, disconnectCmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                } else {
+                    @Suppress("DEPRECATION")
+                    rxChar.value = disconnectCmd
+                    @Suppress("DEPRECATION")
+                    rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    @Suppress("DEPRECATION")
+                    activeGatt.writeCharacteristic(rxChar)
+                }
+            }
+            _syncStatus.value = BleSyncStatus.Success(0)
+            delay(1200)
+            logDiagnose("✓ Trenne Verbindung sauber (Uhrzeit friert im Stillstand ein, kein Blinken mehr)...")
+            currentStep = -1
+            disconnect(activeGatt)
         }
-
-        val localCal = Calendar.getInstance()
-
-        val localStr = String.format("%02d.%02d.%04d %02d:%02d:%02d",
-            localCal.get(Calendar.DAY_OF_MONTH),
-            localCal.get(Calendar.MONTH) + 1,
-            localCal.get(Calendar.YEAR),
-            localCal.get(Calendar.HOUR_OF_DAY),
-            localCal.get(Calendar.MINUTE),
-            localCal.get(Calendar.SECOND)
-        )
-        logDiagnose("▶ Sende Smartphone-Echtzeit an RTC: $localStr...")
-
-        // 1. Aponorm Lokalzeit-Befehl (Opcode 0x03, 12 Bytes)
-        val localCmd = buildAponormLocalTimeCommand(localCal)
-        val localHex = localCmd.joinToString(" ") { "%02X".format(it) }
-        logDiagnose("   ├-- 1/4 Sende Aponorm RTC-Paket (Opcode 0x03, 12 Bytes): $localHex")
-        sendPacket(activeGatt, localCmd, writeNoResponse = true)
-
-        // 2. Aponorm / Microlife 11-Byte Zeit-Befehl (Opcode 0x08) nach 180ms
-        handler.postDelayed({
-            if (bluetoothGatt != null && realGattConnected) {
-                val timeCmd11 = buildTimeCommand(headerByte = 0x31.toByte(), opcode = 0x08.toByte(), is12HourMode = false)
-                val hexStr11 = timeCmd11.joinToString(" ") { "%02X".format(it) }
-                logDiagnose("   ├-- 2/4 Sende M1/A6 Zeit-Format (11 Bytes, Opcode 0x08): $hexStr11")
-                sendPacket(activeGatt, timeCmd11, writeNoResponse = true)
-            }
-        }, 180)
-
-        // 3. Aponorm Header 0xFF Zeit-Befehl (Opcode 0x00) nach 360ms
-        handler.postDelayed({
-            if (bluetoothGatt != null && realGattConnected) {
-                val ffCmd = buildAponormHeaderFFTimeCommand(localCal)
-                val ffHex = ffCmd.joinToString(" ") { "%02X".format(it) }
-                logDiagnose("   ├-- 3/4 Sende Header 0xFF Zeit-Befehl (Opcode 0x00): $ffHex")
-                sendPacket(activeGatt, ffCmd, writeNoResponse = true)
-            }
-        }, 360)
-
-        // 4. Microlife 13-Byte Zeit-Befehl (Opcode 0xFE) nach 540ms
-        handler.postDelayed({
-            if (bluetoothGatt != null && realGattConnected) {
-                val timeCmd13 = buildTimeCommand9Byte(headerByte = 0xFF.toByte(), opcode = 0xFE.toByte(), is12HourMode = false)
-                val hexStr13 = timeCmd13.joinToString(" ") { "%02X".format(it) }
-                logDiagnose("   └-- 4/4 Sende 9-Payload Zeit-Format (13 Bytes, Opcode 0xFE): $hexStr13")
-                sendPacket(activeGatt, timeCmd13, writeNoResponse = true)
-            }
-        }, 540)
     }
 
     /**
@@ -1848,8 +2008,11 @@ class MicrolifeBleManager(private val context: Context) {
     fun sendManualTimeSync(targetAddress: String? = null, is12HourFormat: Boolean = this.is12HourTimeFormat) {
         this.is12HourTimeFormat = is12HourFormat
         this.isOnlyTimeSyncMode = true
+        this.isOnlyReadTimeMode = false
         this.timeSyncAckSent = false
         this.measurementRequested = false
+        this.isSyncCompleted = false
+        this.currentStep = 0
         if (bluetoothGatt != null && realGattConnected) {
             logDiagnose("▶ Sende sofortige Uhrzeit-Synchronisation an aktive GATT-Verbindung...")
             sendTimeSynchronization(bluetoothGatt)
@@ -1862,6 +2025,14 @@ class MicrolifeBleManager(private val context: Context) {
     }
 
     // Feste Befehls-Arrays laut Aponorm / Microlife Protokoll
+    // Kombi-Startpaket (2C) aus dem Hersteller-Log: Setzt RTC & startet Datenstrom
+    private val CMD_COMBINED_START_2C = byteArrayOf(
+        0x4D.toByte(), 0x31.toByte(), 0x00.toByte(), 0x2C.toByte(), 0x00.toByte(), 0x00.toByte(),
+        0x01.toByte(), 0x02.toByte(), 0x01.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
+        0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
+        0x00.toByte(), 0x00.toByte()
+    )
+
     private val CMD_GET_MEASUREMENTS = byteArrayOf(
         77.toByte(), 0xFF.toByte(), 0.toByte(), 9.toByte(),
         0.toByte(), 0.toByte(), 0.toByte(), 0.toByte(), 0.toByte(), 0.toByte(), 0.toByte(),
@@ -1873,10 +2044,11 @@ class MicrolifeBleManager(private val context: Context) {
     }
 
     private fun scheduleStreamFinish() {
+        if (isSyncCompleted) return
         streamEndRunnable?.let { handler.removeCallbacks(it) }
         val r = Runnable {
             scope.launch {
-                if (!isDataDownloadCompleted && !isErasingOrFinishing) {
+                if (!isDataDownloadCompleted && !isErasingOrFinishing && !isSyncCompleted) {
                     val currentBuffer = dataBuffer.toByteArray()
                     if (currentBuffer.size >= 7) {
                         logDiagnose("✓ Datenstrom abgeschlossen (${currentBuffer.size} Bytes). Starte Dekodierung...")
@@ -1895,6 +2067,147 @@ class MicrolifeBleManager(private val context: Context) {
         handler.postDelayed(r, 2500)
     }
 
+    // Hilfsfunktion zum sauberen Beenden mit Frame 1448 Disconnect
+    @SuppressLint("MissingPermission")
+    private fun closeAndDisconnect(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic? = null) {
+        logDiagnose("▶ Sitzung abgeschlossen. Sende originalen Wireshark Frame 1448/1425 Endbefehl (4D FF 00 02 04 52)...")
+        val rxChar = findWriteCharacteristic(gatt)
+        if (rxChar != null) {
+            val disconnectCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x04.toByte(), 0x52.toByte())
+            rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(rxChar, disconnectCmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+            } else {
+                @Suppress("DEPRECATION")
+                rxChar.value = disconnectCmd
+                @Suppress("DEPRECATION")
+                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                @Suppress("DEPRECATION")
+                gatt.writeCharacteristic(rxChar)
+            }
+        }
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({
+            logDiagnose("✓ Trenne Verbindung sauber (Display fixiert, Uhr steht fest)...")
+            disconnect(gatt)
+        }, 1500)
+    }
+
+    /**
+     * Stellt sicher, dass dynamisch das exakt korrekte Handle für FFF0/FFF2
+     * aus dem aktuellen GATT-Baum ermittelt wird (Verhindert CN/Uhr-Wechselblinken).
+     */
+    @SuppressLint("MissingPermission")
+    fun sendSafeUniversalCommand(gatt: BluetoothGatt, commandBytes: ByteArray, writeType: Int) {
+        val serviceUUID = UUID.fromString("0000fff0-0000-1000-8000-00805f9b34fb")
+        val characteristicUUID = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb")
+
+        // 1. Dienst & Charakteristik dynamisch aus dem aktuellen GATT-Baum holen (bevorzugt FFF0/FFF2)
+        val service = gatt.getService(serviceUUID)
+        val writeChar = service?.getCharacteristic(characteristicUUID) ?: findWriteCharacteristic(gatt)
+        if (writeChar == null) {
+            Log.e("Aponorm", "Fehler: Weder FFF2 noch alternative Schreib-Charakteristik gefunden!")
+            logDiagnose("❌ Fehler: Keine passende Schreib-Charakteristik gefunden!")
+            return
+        }
+
+        // 3. Befehl sauber und sicher absetzen
+        writeChar.writeType = writeType
+        val typeLabel = if (writeType == BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) "WRITE_NO_RESPONSE" else "WRITE_TYPE_DEFAULT"
+        logDiagnose("TX ($typeLabel) -> ${commandBytes.joinToString(" ") { "%02X".format(it) }} (an ${writeChar.uuid})")
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeCharacteristic(writeChar, commandBytes, writeType)
+        } else {
+            @Suppress("DEPRECATION")
+            writeChar.value = commandBytes
+            @Suppress("DEPRECATION")
+            writeChar.writeType = writeType
+            gatt.writeCharacteristic(writeChar)
+        }
+    }
+
+    // --- IDEABUS / MICROLIFE PROTOKOLL METHODEN (ORIGINAL AUS MyBluetoothLE) ---
+
+    fun hexStringToByteArray(s: String): ByteArray {
+        val len = s.length
+        val data = ByteArray(len / 2)
+        var i = 0
+        while (i < len) {
+            data[i / 2] = ((Character.digit(s[i], 16) shl 4) + Character.digit(s[i + 1], 16)).toByte()
+            i += 2
+        }
+        return data
+    }
+
+    /**
+     * Entspricht exakt MyBluetoothLE.calcChecksum(...)
+     */
+    fun calcIdeabusChecksum(strHeader: String, strDevCode: String, strLen: String, strCmd: String, strData: String): String {
+        return try {
+            var sum = Integer.parseInt(strHeader, 16)
+            val str7 = strDevCode + strLen + strCmd + strData
+            val length = str7.length
+            var i2 = 0
+            var i3 = 2
+            while (i3 <= length) {
+                sum += Integer.parseInt(str7.substring(i2, i3), 16)
+                i2 += 2
+                i3 += 2
+            }
+            String.format(Locale.US, "%02X", sum and 0xFF)
+        } catch (e: Exception) {
+            "00"
+        }
+    }
+
+    /**
+     * Entspricht exakt MyBluetoothLE.buildCmdString(str, str2):
+     * 2-Byte Längenfeld (%04x).
+     */
+    fun buildIdeabusCmdString(cmd: String, dataHex: String): ByteArray {
+        val lengthVal = (dataHex.length / 2) + 1 + 1
+        val lengthStr = String.format(Locale.US, "%04x", lengthVal)
+        val checksumStr = calcIdeabusChecksum(HEADER_4D, DEVICE_CODE_BPM_SEND, lengthStr, cmd, dataHex)
+        val fullHex = HEADER_4D + DEVICE_CODE_BPM_SEND + lengthStr + cmd + dataHex + checksumStr
+        return hexStringToByteArray(fullHex)
+    }
+
+    /**
+     * Entspricht exakt MyBluetoothLE.buildCmdStringForWBP(str, str2):
+     * 1-Byte Längenfeld (%02x).
+     */
+    fun buildIdeabusCmdStringForWBP(cmd: String, dataHex: String): ByteArray {
+        val lengthVal = (dataHex.length / 2) + 1 + 1
+        val lengthStr = String.format(Locale.US, "%02x", lengthVal)
+        val checksumStr = calcIdeabusChecksum(HEADER_4D, DEVICE_CODE_BPM_SEND, lengthStr, cmd, dataHex)
+        val fullHex = HEADER_4D + DEVICE_CODE_BPM_SEND + lengthStr + cmd + dataHex + checksumStr
+        return hexStringToByteArray(fullHex)
+    }
+
+    /**
+     * Erstellt das universelle 12-Byte Uhrzeit-Paket mit TimeZone.getDefault()
+     * exakt nach dem Algorithmus von MyBluetoothLE.buildCmdString("00", timeData).
+     * Verhindert FL- und Wechsel-Blinken, da die Zeit der lokalen Systemzeit entspricht.
+     */
+    fun generateExactTimeCommand(): ByteArray {
+        // Nutzt die lokale Zeitzone des Handys (inkl. Sommer-/Winterzeit-Korrektur)
+        val calendar = Calendar.getInstance(TimeZone.getDefault())
+        val yearVal = calendar.get(Calendar.YEAR) % 100
+        val monthVal = calendar.get(Calendar.MONTH) + 1
+        val dayVal = calendar.get(Calendar.DAY_OF_MONTH)
+        val hourVal = calendar.get(Calendar.HOUR_OF_DAY) // Echte lokale Stunde (z.B. 17 Uhr)
+        val minuteVal = calendar.get(Calendar.MINUTE)
+        val secondVal = 0 // Sekunden bleiben fest auf 00
+
+        val dataHex = String.format(
+            Locale.US,
+            "%02x%02x%02x%02x%02x%02x",
+            yearVal, monthVal, dayVal, hourVal, minuteVal, secondVal
+        )
+        return buildIdeabusCmdString("00", dataHex)
+    }
+
     @SuppressLint("MissingPermission")
     suspend fun completeBatchAndEraseMemory() {
         completeBatchAndFinish(true)
@@ -1902,6 +2215,15 @@ class MicrolifeBleManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     suspend fun completeBatchAndFinish(deleteAfterSync: Boolean) {
+        if (isSyncCompleted) return
+        isSyncCompleted = true
+        
+        // Zwingend: Alle wartenden Befehle löschen, damit nach der Sync nichts mehr gesendet wird!
+        commandQueue.clear()
+        isCommandPending = false
+        
+        streamEndRunnable?.let { handler.removeCallbacks(it) }
+        streamEndRunnable = null
         if (_syncStatus.value is BleSyncStatus.Success || _syncStatus.value is BleSyncStatus.Error) {
             return
         }
@@ -1918,46 +2240,6 @@ class MicrolifeBleManager(private val context: Context) {
             _downloadedMeasurements.emit(receivedBatch.toList())
             _syncStatus.value = BleSyncStatus.Success(count)
             logDiagnose("🎉 SYNCHRONISATION ERFOLGREICH: $count echte Messungen übertragen.")
-
-            // Sende Uhrzeit-Synchronisation, Löschbefehl und Abschluss-Handshake
-            bluetoothGatt?.let { gatt ->
-                logDiagnose("▶ SCHRITT 8: Sende Uhrzeit, optional Löschbefehl und schließe Sitzung...")
-                try {
-                    val cal = Calendar.getInstance()
-                    // 1. Das einzige, universelle Uhrzeit-Paket (12 Bytes)
-                    val payload = byteArrayOf(
-                        0x00.toByte(), 0x08.toByte(), 0x00.toByte(),
-                        (cal.get(Calendar.YEAR) % 100).toByte(),
-                        (cal.get(Calendar.MONTH) + 1).toByte(),
-                        cal.get(Calendar.DAY_OF_MONTH).toByte(),
-                        cal.get(Calendar.HOUR_OF_DAY).toByte(),
-                        cal.get(Calendar.MINUTE).toByte(),
-                        0x00.toByte()
-                    )
-                    val timeCmd = buildMicrolifeCommand(0xFF.toByte(), payload)
-                    logDiagnose("   ├-- Sende universelles Uhrzeit-Paket: ${timeCmd.joinToString(" ") { "%02X".format(it) }}")
-                    sendPacket(gatt, timeCmd, writeNoResponse = true)
-
-                    delay(250) // Kurze Pause für die RTC-Verarbeitung
-
-                    // 2. SCHRITT: Die Weiche für das Löschen
-                    if (deleteAfterSync) {
-                        logDiagnose("   ├-- Löschen ist aktiv: Sende universellen Löschbefehl...")
-                        val deleteCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x05.toByte(), 0x00.toByte(), 0x4F.toByte())
-                        logDiagnose("   ├-- Löschbefehl: ${deleteCmd.joinToString(" ") { "%02X".format(it) }}")
-                        sendPacket(gatt, deleteCmd, writeNoResponse = true)
-                        delay(300) // Wichtig! Dem Gerät Zeit geben, das große "CL" anzuzeigen
-                    }
-
-                    // 3. SCHRITT: Sitzung final schließen
-                    val closeCmd = byteArrayOf(0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x01.toByte(), 0x0F.toByte(), 0x5C.toByte())
-                    logDiagnose("   └-- Sende CN-Break (Stoppt Blinken): ${closeCmd.joinToString(" ") { "%02X".format(it) }}")
-                    sendPacket(gatt, closeCmd, writeNoResponse = true)
-                    delay(100)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Fehler beim Senden der Abschluss-Befehle", e)
-                }
-            }
         } else {
             // Keine neuen Messungen (Gerätespeicher war bereits leer oder wurde gelöscht)
             _downloadedMeasurements.emit(emptyList())
@@ -1965,17 +2247,97 @@ class MicrolifeBleManager(private val context: Context) {
             logDiagnose("ℹ️ Gerätespeicher ist leer (0 Messungen gefunden).")
         }
 
-        delay(500)
-        disconnect()
+        val gatt = bluetoothGatt
+        if (gatt != null && deleteAfterSync) {
+            // Szenario B: Speicher MUSS gelöscht werden (In den Einstellungen "Automatisches Löschen nach Sync" aktiviert)
+            logDiagnose("▶ Szenario B: Speicherlöschung im Setup aktiviert!")
+            _syncStatus.value = BleSyncStatus.ErasingMemory
+            logDiagnose("   ├-- Warte 500ms, um Datenübertragung abklingen zu lassen...")
+            scope.launch {
+                delay(500)
+                if (realGattConnected && bluetoothGatt != null) {
+                    logDiagnose("   ├-- Sende originalen Wireshark Löschbefehl (4D FF 00 02 03 51) als WRITE_REQUEST an Handle 0x0065...")
+                    // Exakter Wireshark Befehl aus Frame vor 1425 (12 65 00 4D FF 00 02 03 51):
+                    // Opcode 0x12 (Write Request), Handle 0x0065, Payload: 4D FF 00 02 03 51 (Opcode 0x03 = Clear Memory)
+                    val deleteCmd = byteArrayOf(
+                        0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x03.toByte(), 0x51.toByte()
+                    )
+                    currentStep = 1
+                    sendSafeUniversalCommand(gatt, deleteCmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                    
+                    // Sicherheits-Fallback: Falls nach 2000ms kein Callback ausgelöst wurde, Standby-Befehl senden
+                    delay(2000)
+                    if (currentStep == 1) {
+                        logDiagnose("   └-- Sicherheits-Timeout: Schließe Sitzung mit Frame 1425/1448 (4D FF 00 02 04 52) ab...")
+                        currentStep = -1
+                        isMemoryErased = true
+                        _syncStatus.value = BleSyncStatus.Success(
+                            count = count,
+                            newlyInserted = lastInsertedCount,
+                            memoryErased = true
+                        )
+                        closeAndDisconnect(gatt)
+                    }
+                }
+            }
+        } else {
+            // Szenario A: Speicher soll NICHT gelöscht werden (Standard)
+            logDiagnose("▶ Szenario A (Standard): Sende originalen Wireshark Frame 1448 Endbefehl (4D FF 00 02 04 52)...")
+            
+            // Exakt der aus Wireshark Paket 1448 (12 65 00 4D FF 00 02 04 52) bestätigte 6-Byte Befehl:
+            // Opcode 0x12 (Write Request) an Handle 0x0065, Payload: 4D FF 00 02 04 52
+            val originalFrame1448Cmd = byteArrayOf(
+                0x4D.toByte(), 0xFF.toByte(), 0x00.toByte(), 0x02.toByte(), 0x04.toByte(), 0x52.toByte()
+            )
+            
+            if (gatt != null) {
+                val rxChar = findWriteCharacteristic(gatt)
+                if (rxChar != null) {
+                    currentStep = 4 // Schritt 4: Finaler Disconnect-Handshake
+                    // ZWINGEND: Als echter WRITE_TYPE_DEFAULT (Write Request 0x12 wie in Frame 1448!)
+                    rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    
+                    val written = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        gatt.writeCharacteristic(rxChar, originalFrame1448Cmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothGatt.GATT_SUCCESS
+                    } else {
+                        @Suppress("DEPRECATION")
+                        rxChar.value = originalFrame1448Cmd
+                        @Suppress("DEPRECATION")
+                        rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        @Suppress("DEPRECATION")
+                        gatt.writeCharacteristic(rxChar)
+                    }
+                    logDiagnose("✓ Frame 1448 Endbefehl (4D FF 00 02 04 52) als WRITE_REQUEST an Handle 0x0065 abgesetzt (Erfolg: $written).")
+                }
+            }
+            
+            // Alle alten asynchronen Timer löschen
+            handler.removeCallbacksAndMessages(null)
+            
+            // Wir warten exakt 1500ms (genau wie die Spanne im btsnoop-Log zwischen Frame 1448 und 1458),
+            // damit das Aponorm-Gerät den Befehl verarbeitet, die Uhr fixiert und das FL-Blinken abschaltet.
+            handler.postDelayed({
+                logDiagnose("✓ Ausklingzeit abgelaufen. Trenne Verbindung jetzt physisch über Controller...")
+                disconnect()
+            }, 1500)
+        }
+    }
+
+    fun disconnectDevice() {
+        bluetoothGatt?.let { gatt ->
+            Log.d(TAG, "Trenne Verbindung aktiv...")
+            gatt.disconnect()
+        }
     }
 
     @SuppressLint("MissingPermission")
-    fun disconnect() {
+    fun disconnect(passedGatt: BluetoothGatt? = null) {
         try {
+            currentStep = -1
             commandQueue.clear()
             isCommandPending = false
             handler.removeCallbacksAndMessages(null)
-            val gatt = bluetoothGatt
+            val gatt = passedGatt ?: bluetoothGatt
             bluetoothGatt = null
             realGattConnected = false
             currentState = BleState.IDLE
@@ -2126,7 +2488,54 @@ class MicrolifeBleManager(private val context: Context) {
 
         logDiagnose("📊 Scanne $totalLength Gerätedaten-Bytes nach allen echten 7-Byte Aponorm-Messsätzen...")
 
-        // 1. Alle plausiblen 7-Byte Rohdaten extrahieren
+        // 1. Zuerst die originale Microlife 3G Byte-Dekodierungs-Formel (Sys, Dia, Pulse, Min, Hour, Day, Month)
+        val microlife3GRecords = mutableListOf<BpMeasurement>()
+        var idx = 0
+        while (idx <= totalLength - 7) {
+            val sys = rawData[idx].toInt() and 0xFF
+            val dia = rawData[idx + 1].toInt() and 0xFF
+            val pul = rawData[idx + 2].toInt() and 0xFF
+            val minute = rawData[idx + 3].toInt() and 0xFF
+            val hour = rawData[idx + 4].toInt() and 0xFF
+            val day = rawData[idx + 5].toInt() and 0xFF
+            val month = rawData[idx + 6].toInt() and 0xFF
+
+            if (sys in 50..250 && dia in 30..150 && pul in 30..200 && month in 1..12 && day in 1..31 && hour in 0..23 && minute in 0..59) {
+                val cal = Calendar.getInstance()
+                val currentYear = cal.get(Calendar.YEAR)
+                cal.set(currentYear, month - 1, day, hour, minute, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                microlife3GRecords.add(
+                    BpMeasurement(
+                        systole = sys,
+                        diastole = dia,
+                        pulse = pul,
+                        timestamp = cal.timeInMillis,
+                        afibDetected = false
+                    )
+                )
+                idx += 7
+                continue
+            }
+            idx++
+        }
+
+        if (microlife3GRecords.isNotEmpty()) {
+            logDiagnose("✓ ${microlife3GRecords.size} Messwerte über originale Microlife 3G Formel entschlüsselt.")
+            for ((index, m) in microlife3GRecords.withIndex()) {
+                val dateStr = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(m.timestamp))
+                logDiagnose("📊 MESSUNG #${index + 1}: SYS: ${m.systole} mmHg | DIA: ${m.diastole} mmHg | PULS: ${m.pulse} /min am $dateStr")
+                if (receivedBatch.none { it.timestamp == m.timestamp && it.systole == m.systole }) {
+                    receivedBatch.add(m)
+                }
+            }
+            scope.launch {
+                completeBatchAndFinish(deleteAfterSync)
+            }
+            return
+        }
+
+        // 2. Alternative Ringspeicher-Dekodierung als Fallback
         val rawRecords = mutableListOf<Raw7ByteRecord>()
         var i = 0
         while (i <= totalLength - 7) {
@@ -2325,7 +2734,13 @@ class MicrolifeBleManager(private val context: Context) {
             Log.i("Aponorm_Echtzeit", ausgabe)
             logDiagnose("📊 $ausgabe")
 
-            if (receivedBatch.none { it.timestamp == measurement.timestamp && it.systole == measurement.systole }) {
+            // Bessere Prüfung auf Duplikate: Zeitstempel innerhalb 5s + identische Werte
+            if (receivedBatch.none { 
+                Math.abs(it.timestamp - measurement.timestamp) < 5000 && 
+                it.systole == measurement.systole && 
+                it.diastole == measurement.diastole && 
+                it.pulse == measurement.pulse 
+            }) {
                 receivedBatch.add(measurement)
                 foundCount++
             }
@@ -2347,6 +2762,7 @@ class MicrolifeBleManager(private val context: Context) {
     }
 
     fun updateSuccessInsertedCount(insertedCount: Int) {
+        lastInsertedCount = insertedCount
         val current = _syncStatus.value
         if (current is BleSyncStatus.Success) {
             _syncStatus.value = current.copy(newlyInserted = insertedCount)

@@ -284,6 +284,10 @@ fun HomeScreen(
         if (syncStatus is com.example.ble.BleSyncStatus.Success) {
             val status = syncStatus as com.example.ble.BleSyncStatus.Success
             val msg = when {
+                status.memoryErased && status.newlyInserted > 0 ->
+                    "${status.newlyInserted} neue Messwerte übertragen • Gerätespeicher gelöscht."
+                status.memoryErased ->
+                    "Synchronisation fertig • Gerätespeicher gelöscht."
                 status.newlyInserted > 0 ->
                     "${status.newlyInserted} neue Messwerte übertragen."
                 status.newlyInserted == 0 ->
