@@ -484,7 +484,89 @@ fun HomeScreen(
                         containerColor = CleanSurface
                     )
                 )
-                // Dünne, dezente Trennlinie zwischen Menüleiste oben und Datenbereich
+
+                // Personenauswahl (Person 1 vs Person 2) direkt im Kopfabschnitt integriert
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(top = 2.dp, bottom = 10.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = CleanSurfaceVariant,
+                    border = BorderStroke(1.dp, CleanOutline)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        val isP1 = settings.selectedUserIndex == 1
+                        val isP2 = settings.selectedUserIndex == 2
+
+                        // Person 1 Button
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isP1) CleanPrimary else Color.Transparent)
+                                .clickable { viewModel.selectUser(1) }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = settings.person1.name,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isP1) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // Person 2 Button
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isP2) CleanPrimary else Color.Transparent)
+                                .clickable { viewModel.selectUser(2) }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = settings.person2.name,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isP2) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Dünne, dezente Trennlinie zwischen Kopfabschnitt und Datenbereich
                 HorizontalDivider(
                     thickness = 1.dp,
                     color = CleanOutline.copy(alpha = 0.8f)
@@ -543,320 +625,244 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // 1. PERSON SWITCHER TABS (Person 1 vs Person 2)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(CleanSurfaceVariant)
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                val isP1 = settings.selectedUserIndex == 1
-                val isP2 = settings.selectedUserIndex == 2
+            // SPEICHER- & ÜBERTRAGUNGS-BERECHNUNG FÜR KACHEL LETZTE MESSUNG
+            val activeProfile = settings.activePerson
+            val dailyTarget = activeProfile.measurementsPerDay.coerceAtLeast(1)
+            val latestMeasurement = remember(measurements) { measurements.maxByOrNull { it.timestamp } }
 
-                // Person 1 Button
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isP1) CleanPrimary else Color.Transparent)
-                        .clickable { viewModel.selectUser(1) }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = settings.person1.name,
-                            fontSize = 13.sp,
-                            fontWeight = if (isP1) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isP1) CleanOnPrimary else CleanOnSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+            val now = System.currentTimeMillis()
+            val elapsedDays = remember(latestMeasurement, now) {
+                if (latestMeasurement != null) {
+                    val calNow = Calendar.getInstance().apply {
+                        timeInMillis = now
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
                     }
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // Person 2 Button
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isP2) CleanPrimary else Color.Transparent)
-                        .clickable { viewModel.selectUser(2) }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = settings.person2.name,
-                            fontSize = 13.sp,
-                            fontWeight = if (isP2) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isP2) CleanOnPrimary else CleanOnSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    val calMeas = Calendar.getInstance().apply {
+                        timeInMillis = latestMeasurement.timestamp
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
                     }
-                }
+                    val diffMs = calNow.timeInMillis - calMeas.timeInMillis
+                    (diffMs / (1000L * 60 * 60 * 24)).toInt().coerceAtLeast(0)
+                } else 0
             }
-
-            Spacer(modifier = Modifier.height(0.dp))
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            val relativeDayLabel = when (elapsedDays) {
+                0 -> "Heute"
+                1 -> "Gestern"
+                else -> "vor $elapsedDays Tg."
+            }
+            val estimatedPendingCount = elapsedDays * dailyTarget
+            val isLimitReached = estimatedPendingCount >= 80
+            val isApproachingLimit = estimatedPendingCount in 50..79
+            val lastDateStr = remember(latestMeasurement) {
+                latestMeasurement?.let {
+                    SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(it.timestamp))
+                } ?: "Noch keine Messung"
+            }
 
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(horizontal = 16.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp, bottom = 24.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 8.dp, bottom = 80.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
 
-            // 2. SPEICHER- & ÜBERTRAGUNGS-HINWEIS (Basierend auf Messungen/Tag & 80er Gerätespeicher-Schwellenwert)
-            item {
-                val activeProfile = settings.activePerson
-                val dailyTarget = activeProfile.measurementsPerDay.coerceAtLeast(1)
-                val latestMeasurement = remember(measurements) { measurements.maxByOrNull { it.timestamp } }
+            // 2. KACHEL LETZTE MESSUNG / SPEICHER- & ÜBERTRAGUNGS-HINWEIS (Scrollt mit der Liste mit)
+            if (isLimitReached || isApproachingLimit || latestMeasurement != null) {
+                item(key = "card_latest_measurement") {
+                    if (isLimitReached) {
+                        // Dringende Warnmeldung bei Erreichen von 80 Messungen
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("card_memory_warning_80"),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = CleanAlertContainer),
+                            border = BorderStroke(1.5.dp, CleanAlertText)
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(CleanAlertText),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Gerätespeicher-Warnung (80 Messungen)",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 13.5.sp,
+                                            color = CleanAlertText
+                                        )
+                                        Text(
+                                            text = "Ca. $estimatedPendingCount Messungen seit letzter Speicherung",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.5.sp,
+                                            color = CleanAlertText.copy(alpha = 0.85f)
+                                        )
+                                    }
+                                }
 
-                val now = System.currentTimeMillis()
-                val elapsedDays = remember(latestMeasurement, now) {
-                    if (latestMeasurement != null) {
-                        val calNow = Calendar.getInstance().apply {
-                            timeInMillis = now
-                            set(Calendar.HOUR_OF_DAY, 0)
-                            set(Calendar.MINUTE, 0)
-                            set(Calendar.SECOND, 0)
-                            set(Calendar.MILLISECOND, 0)
-                        }
-                        val calMeas = Calendar.getInstance().apply {
-                            timeInMillis = latestMeasurement.timestamp
-                            set(Calendar.HOUR_OF_DAY, 0)
-                            set(Calendar.MINUTE, 0)
-                            set(Calendar.SECOND, 0)
-                            set(Calendar.MILLISECOND, 0)
-                        }
-                        val diffMs = calNow.timeInMillis - calMeas.timeInMillis
-                        (diffMs / (1000L * 60 * 60 * 24)).toInt().coerceAtLeast(0)
-                    } else 0
-                }
-                val relativeDayLabel = when (elapsedDays) {
-                    0 -> "Heute"
-                    1 -> "Gestern"
-                    else -> "vor $elapsedDays Tg."
-                }
-                val estimatedPendingCount = elapsedDays * dailyTarget
-                val isLimitReached = estimatedPendingCount >= 80
-                val isApproachingLimit = estimatedPendingCount in 50..79
-                val lastDateStr = remember(latestMeasurement) {
-                    latestMeasurement?.let {
-                        SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date(it.timestamp))
-                    } ?: "Noch keine Messung"
-                }
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Seit der letzten in der App gespeicherten Messung vom $lastDateStr ($relativeDayLabel) sind bei $dailyTarget Messungen/Tag ca. $estimatedPendingCount Messungen auf dem Gerät angefallen. Der Schwellenwert von 80 Messungen ist erreicht – bitte übertragen Sie die Daten jetzt per Bluetooth, um Datenverlust durch Ringspeicher-Überschreibung zu verhindern!",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = CleanAlertText,
+                                    lineHeight = 16.sp
+                                )
 
-                if (isLimitReached) {
-                    // Dringende Warnmeldung bei Erreichen von 80 Messungen
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("card_memory_warning_80"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = CleanAlertContainer),
-                        border = BorderStroke(1.5.dp, CleanAlertText)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Button(
+                                    onClick = { checkAndStartSync() },
                                     modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(CleanAlertText),
-                                    contentAlignment = Alignment.Center
+                                        .fillMaxWidth()
+                                        .testTag("btn_sync_from_memory_warning"),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = CleanAlertText,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Warning,
+                                        imageVector = Icons.Default.BluetoothSearching,
                                         contentDescription = null,
-                                        tint = Color.White,
                                         modifier = Modifier.size(18.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Messungen jetzt per Bluetooth übertragen",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp
+                                    )
                                 }
+                            }
+                        }
+                    } else if (isApproachingLimit) {
+                        // Vorwarnung bei 50..79 Messungen
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("card_memory_notice"),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = WarningOrangeContainer),
+                            border = BorderStroke(1.2.dp, WarningOrange)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = WarningOrange,
+                                    modifier = Modifier.size(22.dp)
+                                )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Gerätespeicher-Warnung (80 Messungen)",
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 13.5.sp,
-                                        color = CleanAlertText
+                                        text = "Übertragungs-Hinweis: ~$estimatedPendingCount von 80 Messungen",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp,
+                                        color = Color(0xFF78350F)
                                     )
                                     Text(
-                                        text = "Ca. $estimatedPendingCount Messungen seit letzter Speicherung",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.5.sp,
-                                        color = CleanAlertText.copy(alpha = 0.85f)
+                                        text = "Letzte Messung: $lastDateStr ($relativeDayLabel, $dailyTarget Messungen/Tag). Bald per Bluetooth übertragen.",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF92400E),
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                IconButton(
+                                    onClick = { checkAndStartSync() },
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Sync,
+                                        contentDescription = "Übertragen",
+                                        tint = WarningOrange
                                     )
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = "Seit der letzten in der App gespeicherten Messung vom $lastDateStr ($relativeDayLabel) sind bei $dailyTarget Messungen/Tag ca. $estimatedPendingCount Messungen auf dem Gerät angefallen. Der Schwellenwert von 80 Messungen ist erreicht – bitte übertragen Sie die Daten jetzt per Bluetooth, um Datenverlust durch Ringspeicher-Überschreibung zu verhindern!",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = CleanAlertText,
-                                lineHeight = 16.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Button(
-                                onClick = { checkAndStartSync() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("btn_sync_from_memory_warning"),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = CleanAlertText,
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.BluetoothSearching,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Messungen jetzt per Bluetooth übertragen",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.5.sp
-                                )
-                            }
                         }
-                    }
-                } else if (isApproachingLimit) {
-                    // Vorwarnung bei 50..79 Messungen
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("card_memory_notice"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = WarningOrangeContainer),
-                        border = BorderStroke(1.2.dp, WarningOrange)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.NotificationsActive,
-                                contentDescription = null,
-                                tint = WarningOrange,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Übertragungs-Hinweis: ~$estimatedPendingCount von 80 Messungen",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.5.sp,
-                                    color = Color(0xFF78350F)
-                                )
-                                Text(
-                                    text = "Letzte Messung: $lastDateStr ($relativeDayLabel, $dailyTarget Messungen/Tag). Bald per Bluetooth übertragen.",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF92400E),
-                                    lineHeight = 15.sp
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            IconButton(
-                                onClick = { checkAndStartSync() },
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Sync,
-                                    contentDescription = "Übertragen",
-                                    tint = WarningOrange
-                                )
-                            }
-                        }
-                    }
-                } else if (latestMeasurement != null) {
-                    // Normaler unaufdringlicher Status-Balken
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = CleanSurfaceVariant,
-                        border = BorderStroke(1.dp, CleanOutline)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    } else if (latestMeasurement != null) {
+                        // Normaler unaufdringlicher Status-Balken (Kachel Letzte Messung)
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = CleanSurfaceVariant,
+                            border = BorderStroke(1.dp, CleanOutline)
                         ) {
                             Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.AccessTime,
-                                    contentDescription = null,
-                                    tint = CleanPrimary,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Column {
-                                    Text(
-                                        text = "Letzte Messung:",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = CleanOnSurface
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AccessTime,
+                                        contentDescription = null,
+                                        tint = CleanPrimary,
+                                        modifier = Modifier.size(15.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column {
+                                        Text(
+                                            text = "Letzte Messung:",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = CleanOnSurface
+                                        )
+                                        Text(
+                                            text = "$relativeDayLabel ($lastDateStr)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = CleanOnSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = CleanSurface,
+                                    border = BorderStroke(0.8.dp, CleanOutline)
+                                ) {
                                     Text(
-                                        text = "$relativeDayLabel ($lastDateStr)",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = CleanOnSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        text = "${dailyTarget}x/Tag (~$estimatedPendingCount/80)",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CleanPrimary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = CleanSurface,
-                                border = BorderStroke(0.8.dp, CleanOutline)
-                            ) {
-                                Text(
-                                    text = "${dailyTarget}x/Tag (~$estimatedPendingCount/80)",
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CleanPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
                             }
                         }
                     }
@@ -865,7 +871,6 @@ fun HomeScreen(
 
             // 3. LINE / TREND CURVE EVALUATION COMPONENT
             item {
-                Spacer(modifier = Modifier.height(12.dp))
                 BpLineChart(
                     measurements = measurements,
                     systoleNormMax = settings.systoleNormMax,
