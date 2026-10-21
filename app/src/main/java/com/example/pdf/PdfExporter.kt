@@ -892,13 +892,13 @@ object PdfExporter {
     private fun drawPageFooter(canvas: Canvas, width: Float, height: Float, currentPage: Int, totalPages: Int) {
         val paint = Paint().apply { isAntiAlias = true }
 
-        // 1. Fußnote: Unruhe-Erklärung mit rotem Punkt ("Werte mit 🔴 Unruhe ( z.B. nach Körperpflege , Spaziergang )")
+        // 1. Fußnote: Unruhe-Erklärung mit rotem Punkt ("Werte mit 🔴 Unruhe ( z.B. nach Körperpflege , Spaziergang , Hauswirtschaft )")
         val fnY = height - 25f
         paint.color = Color.rgb(71, 85, 105)
         paint.textSize = 7.5f
         paint.typeface = Typeface.DEFAULT
         val textBefore = "Werte mit "
-        val textAfter = "Unruhe ( z.B. nach Körperpflege , Spaziergang )"
+        val textAfter = "Unruhe ( z.B. nach Körperpflege , Spaziergang , Hauswirtschaft )"
 
         var fnX = MARGIN
         canvas.drawText(textBefore, fnX, fnY, paint)
