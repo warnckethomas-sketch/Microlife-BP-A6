@@ -1031,7 +1031,8 @@ fun HomeScreen(
                             measurement = item,
                             systoleNormMax = settings.systoleNormMax,
                             diastoleNormMax = settings.diastoleNormMax,
-                            onDeleteClick = { viewModel.deleteMeasurement(it) }
+                            onDeleteClick = { viewModel.deleteMeasurement(it) },
+                            onToggleRestingClick = { viewModel.toggleRestingState(it) }
                         )
                     }
                 }
@@ -1136,7 +1137,8 @@ fun HomeScreen(
                                 measurement = item,
                                 systoleNormMax = settings.systoleNormMax,
                                 diastoleNormMax = settings.diastoleNormMax,
-                                onDeleteClick = { viewModel.deleteMeasurement(it) }
+                                onDeleteClick = { viewModel.deleteMeasurement(it) },
+                                onToggleRestingClick = { viewModel.toggleRestingState(it) }
                             )
                         }
                     }

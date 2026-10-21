@@ -61,7 +61,7 @@ object PdfExporter {
      * - Messung 3: Abends (>= 18:00) - Vertauscht mit 4. Messung
      * - Messung 4: Kontroll / Nachmittag (14:30 - 18:00) - Vertauscht mit 3. Messung
      */
-    private fun groupMeasurementsByDay(measurements: List<BpMeasurement>): List<DayRow> {
+    internal fun groupMeasurementsByDay(measurements: List<BpMeasurement>): List<DayRow> {
         val dfDayKey = SimpleDateFormat("yyyyMMdd", Locale.GERMANY)
         val dfDayLabel = SimpleDateFormat("EE, dd.MM.", Locale.GERMANY)
 
@@ -123,7 +123,7 @@ object PdfExporter {
      * Filters measurements for the current month (or newest month available if none in current)
      * and sorts chronologically ASCENDING from the 01. of the month onwards!
      */
-    private fun filterCurrentMonthMeasurements(measurements: List<BpMeasurement>): Pair<String, List<BpMeasurement>> {
+    internal fun filterCurrentMonthMeasurements(measurements: List<BpMeasurement>): Pair<String, List<BpMeasurement>> {
         if (measurements.isEmpty()) {
             val dfMonth = SimpleDateFormat("MMMM yyyy", Locale.GERMANY)
             return Pair(dfMonth.format(Date()), emptyList())
@@ -845,7 +845,20 @@ object PdfExporter {
                     if (isAfib) {
                         paint.color = Color.rgb(185, 28, 28)
                         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                        canvas.drawText(" ⚠️", drawX, textY, paint)
+                        val afibStr = " ⚠️"
+                        canvas.drawText(afibStr, drawX, textY, paint)
+                        drawX += paint.measureText(afibStr)
+                    }
+
+                    // Roter Punkt nur bei Unruhe
+                    if (!m.isResting) {
+                        val unruheDotPaint = Paint().apply {
+                            color = Color.rgb(220, 38, 38)
+                            style = Paint.Style.FILL
+                            isAntiAlias = true
+                        }
+                        canvas.drawCircle(drawX + 4.5f, textY - 2.5f, 2.5f, unruheDotPaint)
+                        drawX += 9f
                     }
                 }
             }
@@ -876,15 +889,40 @@ object PdfExporter {
 
     private fun drawPageFooter(canvas: Canvas, width: Float, height: Float, currentPage: Int, totalPages: Int) {
         val paint = Paint().apply { isAntiAlias = true }
+
+        // 1. Fußnote: Unruhe-Erklärung mit rotem Punkt ("Werte mit 🔴 Unruhe ( z.B. nach Körperpflege , Spaziergang )")
+        val fnY = height - 25f
+        paint.color = Color.rgb(71, 85, 105)
+        paint.textSize = 7.5f
+        paint.typeface = Typeface.DEFAULT
+        val textBefore = "Werte mit "
+        val textAfter = "Unruhe ( z.B. nach Körperpflege , Spaziergang )"
+
+        var fnX = MARGIN
+        canvas.drawText(textBefore, fnX, fnY, paint)
+        fnX += paint.measureText(textBefore)
+
+        val unruheDotPaint = Paint().apply {
+            color = Color.rgb(220, 38, 38)
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        canvas.drawCircle(fnX + 3f, fnY - 2.5f, 2.7f, unruheDotPaint)
+        fnX += 6.5f
+
+        canvas.drawText(textAfter, fnX, fnY, paint)
+
+        // 2. Footer-Zeile: Seitennummer & Format-Hinweis
+        val footerY = height - 12f
         paint.color = Color.rgb(148, 163, 184)
-        paint.textSize = 8f
+        paint.textSize = 7.5f
         paint.typeface = Typeface.DEFAULT
         paint.textAlign = Paint.Align.LEFT
-        canvas.drawText("Seite $currentPage von $totalPages • Microlife BP A6 BT", MARGIN, height - 14f, paint)
+        canvas.drawText("Seite $currentPage von $totalPages • Microlife BP A6 BT", MARGIN, footerY, paint)
 
         val noteText = "Tagesweise Schattierung • Werte über Grenzwert oder AFIB farblich hervorgehoben"
         val noteWidth = paint.measureText(noteText)
-        canvas.drawText(noteText, width - MARGIN - noteWidth, height - 14f, paint)
+        canvas.drawText(noteText, width - MARGIN - noteWidth, footerY, paint)
     }
 
     /**

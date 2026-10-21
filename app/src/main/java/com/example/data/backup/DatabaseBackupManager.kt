@@ -250,6 +250,7 @@ object DatabaseBackupManager {
                 put("userIndex", m.userIndex)
                 put("personName", if (m.userIndex == 2) settings.person2.name else settings.person1.name)
                 put("notes", m.notes)
+                put("isResting", m.isResting)
             }
             itemsArray.put(item)
         }
@@ -436,7 +437,8 @@ object DatabaseBackupManager {
                     pulse = item.optInt("pulse", 70),
                     afibDetected = item.optBoolean("afibDetected", false),
                     userIndex = item.optInt("userIndex", 1),
-                    notes = item.optString("notes", "")
+                    notes = item.optString("notes", ""),
+                    isResting = item.optBoolean("isResting", true)
                 )
                 parsedList.add(m)
             }

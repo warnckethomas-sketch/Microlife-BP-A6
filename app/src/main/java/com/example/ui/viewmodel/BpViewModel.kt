@@ -248,6 +248,12 @@ class BpViewModel(
         }
     }
 
+    fun toggleRestingState(measurement: BpMeasurement) {
+        viewModelScope.launch {
+            repository.toggleRestingState(measurement.id, measurement.isResting)
+        }
+    }
+
     fun deleteAllMeasurements() {
         viewModelScope.launch {
             repository.deleteAll()

@@ -1,7 +1,9 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -22,6 +25,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,6 +52,7 @@ fun MeasurementCard(
     systoleNormMax: Int,
     diastoleNormMax: Int,
     onDeleteClick: (Int) -> Unit,
+    onToggleRestingClick: (BpMeasurement) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isNorm = measurement.isWithinNorm(systoleNormMax, diastoleNormMax)
@@ -169,10 +175,10 @@ fun MeasurementCard(
                 }
             }
 
-            // Right Side: Pulse Section + Delete Action
+            // Right Side: Pulse Section + (Resting Toggle / Delete Column)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
@@ -198,18 +204,62 @@ fun MeasurementCard(
                     }
                 }
 
-                IconButton(
-                    onClick = { onDeleteClick(measurement.id) },
-                    modifier = Modifier
-                        .size(28.dp)
-                        .testTag("delete_measurement_${measurement.id}")
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Messung löschen",
-                        tint = CleanMutedText.copy(alpha = 0.5f),
-                        modifier = Modifier.size(16.dp)
-                    )
+                    // Status 🟢 Ruhe / 🔴 Unruhe Schalter über dem Löschbutton
+                    Surface(
+                        onClick = { onToggleRestingClick(measurement) },
+                        modifier = Modifier
+                            .testTag("toggle_resting_${measurement.id}"),
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (measurement.isResting) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                        border = BorderStroke(1.dp, if (measurement.isResting) Color(0xFF81C784) else Color(0xFFE57373))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(if (measurement.isResting) Color(0xFF2E7D32) else Color(0xFFC62828)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(3.5.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (measurement.isResting) "Ruhe" else "Unruhe",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (measurement.isResting) Color(0xFF1B5E20) else Color(0xFFB71C1C)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    IconButton(
+                        onClick = { onDeleteClick(measurement.id) },
+                        modifier = Modifier
+                            .size(28.dp)
+                            .testTag("delete_measurement_${measurement.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Messung löschen",
+                            tint = CleanMutedText.copy(alpha = 0.5f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }

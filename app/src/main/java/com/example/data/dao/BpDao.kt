@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.example.data.model.AppSettingsEntity
 import com.example.data.model.BpMeasurement
 import com.example.data.model.PersonProfileEntity
@@ -25,6 +26,12 @@ interface BpDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeasurements(measurements: List<BpMeasurement>)
+
+    @Update
+    suspend fun updateMeasurement(measurement: BpMeasurement)
+
+    @Query("UPDATE bp_measurements SET isResting = :isResting WHERE id = :id")
+    suspend fun updateRestingState(id: Int, isResting: Boolean)
 
     @Query("DELETE FROM bp_measurements WHERE id = :id")
     suspend fun deleteMeasurementById(id: Int)

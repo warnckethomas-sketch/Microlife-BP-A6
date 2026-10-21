@@ -16,7 +16,8 @@ data class BpMeasurement(
     val pulse: Int,
     val afibDetected: Boolean,
     val userIndex: Int = 1,
-    val notes: String = ""
+    val notes: String = "",
+    val isResting: Boolean = true
 ) {
     fun formattedDateTime(): String {
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY)

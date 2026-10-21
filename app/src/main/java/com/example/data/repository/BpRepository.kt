@@ -279,6 +279,14 @@ class BpRepository(
         bpDao.deleteMeasurementById(id)
     }
 
+    suspend fun updateMeasurement(measurement: BpMeasurement) {
+        bpDao.updateMeasurement(measurement)
+    }
+
+    suspend fun toggleRestingState(id: Int, currentIsResting: Boolean) {
+        bpDao.updateRestingState(id, !currentIsResting)
+    }
+
     suspend fun deleteAll() {
         bpDao.deleteAllMeasurements()
     }
