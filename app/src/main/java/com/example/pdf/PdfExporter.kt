@@ -850,15 +850,17 @@ object PdfExporter {
                         drawX += paint.measureText(afibStr)
                     }
 
-                    // Roter Punkt nur bei Unruhe
+                    // Roter Punkt nur bei Unruhe mit angenehmem Abstand zu den Ziffern
                     if (!m.isResting) {
                         val unruheDotPaint = Paint().apply {
                             color = Color.rgb(220, 38, 38)
                             style = Paint.Style.FILL
                             isAntiAlias = true
                         }
-                        canvas.drawCircle(drawX + 4.5f, textY - 2.5f, 2.5f, unruheDotPaint)
-                        drawX += 9f
+                        val dotGap = 8.0f
+                        val dotRadius = 2.4f
+                        canvas.drawCircle(drawX + dotGap + dotRadius, textY - 2.5f, dotRadius, unruheDotPaint)
+                        drawX += dotGap + (dotRadius * 2f) + 2f
                     }
                 }
             }
