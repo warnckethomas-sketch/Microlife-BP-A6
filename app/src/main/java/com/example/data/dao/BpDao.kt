@@ -36,8 +36,8 @@ interface BpDao {
     @Query("DELETE FROM bp_measurements WHERE id = :id")
     suspend fun deleteMeasurementById(id: Int)
 
-    @Query("DELETE FROM bp_measurements WHERE timestamp > :futureLimit")
-    suspend fun deleteFutureMeasurements(futureLimit: Long): Int
+    @Query("SELECT * FROM bp_measurements WHERE timestamp > :futureLimit ORDER BY timestamp DESC")
+    suspend fun getFutureMeasurements(futureLimit: Long): List<BpMeasurement>
 
     @Query("DELETE FROM bp_measurements")
     suspend fun deleteAllMeasurements()

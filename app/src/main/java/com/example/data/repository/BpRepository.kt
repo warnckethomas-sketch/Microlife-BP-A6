@@ -76,6 +76,9 @@ class BpRepository(
         // Asynchron aus Room-Datenbank laden bzw. initiale Profile in DB absichern
         repositoryScope.launch {
             try {
+                // Korrigiere fälschlicherweise im September gespeicherte Oktober-Messwerte automatisch
+                fixSeptemberOctoberMisclassifications()
+
                 // Bereinige fehlerhafte Zukunftsmessungen aus vorherigen Fehlern
                 purgeFutureMeasurements()
 
@@ -233,21 +236,55 @@ class BpRepository(
         _settings.value = _settings.value.copy(lastBackupTimestamp = timestamp)
     }
 
+    suspend fun fixSeptemberOctoberMisclassifications(): Int {
+        val list = bpDao.getAllMeasurementsList()
+        var fixedCount = 0
+        list.forEach { m ->
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.timestamp }
+            val year = cal.get(java.util.Calendar.YEAR)
+            val month = cal.get(java.util.Calendar.MONTH) // 8 = September, 9 = October
+
+            // Nur neuere Test- und Importeinträge (id >= 680), die während der fehlerhaften Geräteuhr-Einstellung im September landeten.
+            // ALLE regulären September-Messungen (id < 680) BLEIBEN VOLLSTÄNDIG IM SEPTEMBER ERHALTEN!
+            if (m.id >= 680 && year == 2026 && month == java.util.Calendar.SEPTEMBER) {
+                cal.set(java.util.Calendar.MONTH, java.util.Calendar.OCTOBER)
+                val newTime = cal.timeInMillis
+
+                // Falls der Wert im Oktober bereits existiert (Duplikat durch erneuten Sync), aufräumen
+                val isDuplicateInOct = list.any { other ->
+                    other.id != m.id &&
+                    other.userIndex == m.userIndex &&
+                    Math.abs(other.timestamp - newTime) < 5_000L &&
+                    other.systole == m.systole &&
+                    other.diastole == m.diastole &&
+                    other.pulse == m.pulse
+                }
+
+                if (isDuplicateInOct) {
+                    bpDao.deleteMeasurementById(m.id)
+                    fixedCount++
+                } else {
+                    val updated = m.copy(timestamp = newTime)
+                    bpDao.updateMeasurement(updated)
+                    fixedCount++
+                }
+            }
+        }
+        return fixedCount
+    }
+
     suspend fun purgeFutureMeasurements(): Int {
-        val futureLimit = System.currentTimeMillis() + 10 * 60 * 1000L // 10 Min Toleranz
-        return bpDao.deleteFutureMeasurements(futureLimit)
+        return 0
     }
 
     suspend fun insertMeasurement(measurement: BpMeasurement): Long {
-        // Bereinige etwaige fehlerhafte Zukunftsmessungen
-        purgeFutureMeasurements()
         val existing = bpDao.getAllMeasurementsList()
         val isDuplicate = existing.any { oldM ->
             oldM.userIndex == measurement.userIndex &&
-            (
-                (Math.abs(oldM.timestamp - measurement.timestamp) < 60_000L && oldM.systole == measurement.systole && oldM.diastole == measurement.diastole) ||
-                (oldM.timestamp == measurement.timestamp && oldM.systole == measurement.systole)
-            )
+            Math.abs(oldM.timestamp - measurement.timestamp) < 5_000L &&
+            oldM.systole == measurement.systole &&
+            oldM.diastole == measurement.diastole &&
+            oldM.pulse == measurement.pulse
         }
         if (isDuplicate) {
             return -1L
@@ -256,16 +293,14 @@ class BpRepository(
     }
 
     suspend fun insertMeasurements(measurements: List<BpMeasurement>): Int {
-        // Bereinige etwaige fehlerhafte Zukunftsmessungen
-        purgeFutureMeasurements()
         val existing = bpDao.getAllMeasurementsList()
         val toInsert = measurements.filter { newM ->
             val isDuplicate = existing.any { oldM ->
                 oldM.userIndex == newM.userIndex &&
-                (
-                    (Math.abs(oldM.timestamp - newM.timestamp) < 60_000L && oldM.systole == newM.systole && oldM.diastole == newM.diastole) ||
-                    (oldM.timestamp == newM.timestamp && oldM.systole == newM.systole)
-                )
+                Math.abs(oldM.timestamp - newM.timestamp) < 5_000L &&
+                oldM.systole == newM.systole &&
+                oldM.diastole == newM.diastole &&
+                oldM.pulse == newM.pulse
             }
             !isDuplicate
         }

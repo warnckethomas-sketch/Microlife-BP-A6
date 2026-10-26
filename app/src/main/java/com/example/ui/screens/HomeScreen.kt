@@ -239,6 +239,14 @@ fun HomeScreen(
         }
     }
 
+    // Automatisch alle Monats-Aufklappmenüs mit Messwerten erweitern, damit keine importierten Daten verdeckt bleiben
+    androidx.compose.runtime.LaunchedEffect(measurements) {
+        val keysWithData = groupedMonths.filter { !it.isCurrentMonth && it.measurements.isNotEmpty() }.map { it.key }.toSet()
+        if (keysWithData.isNotEmpty()) {
+            expandedMonthKeys = expandedMonthKeys + keysWithData
+        }
+    }
+
     // SAF File Creator Launcher for saving PDF to custom file
     val savePdfLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
@@ -1172,6 +1180,7 @@ fun HomeScreen(
             onRestoreDatabaseFromUri = { uri -> viewModel.restoreDatabaseFromUri(context, uri) },
             onSelectBackupFolder = { uri, display -> viewModel.setBackupDirectory(uri, display) },
             onClearAllData = { viewModel.deleteAllMeasurements() },
+            onFixSeptemberToOctober = { viewModel.fixSeptemberOctoberMisclassifications(context) },
             onOpenDiagnose = {
                 showSettingsDialog = false
                 showDiagnoseDialog = true

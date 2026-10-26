@@ -260,6 +260,17 @@ class BpViewModel(
         }
     }
 
+    fun fixSeptemberOctoberMisclassifications(context: Context) {
+        viewModelScope.launch {
+            val count = repository.fixSeptemberOctoberMisclassifications()
+            if (count > 0) {
+                Toast.makeText(context, "$count Messwerte von September auf Oktober korrigiert!", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "Keine fehlerhaften September-Messwerte gefunden.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun printPdf(
         context: Context,
         targetMeasurements: List<BpMeasurement>? = null,

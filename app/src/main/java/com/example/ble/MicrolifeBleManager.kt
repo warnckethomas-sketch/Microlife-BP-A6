@@ -2639,7 +2639,11 @@ class MicrolifeBleManager(private val context: Context) {
             set(Calendar.MILLISECOND, 0)
         }
         // Falls der neueste Eintrag bei Annahme des aktuellen Monats in der Zukunft liegt:
-        if (anchorCal.timeInMillis > now + 15 * 60 * 1000L) {
+        // HINWEIS: Ein Schwellenwert von nur 15 Minuten schob Messungen bei vorgestellter Uhr (z.B. +1 Std.)
+        // fälschlicherweise in den VORMONAT (z.B. von Oktober nach September).
+        // Wir erlauben daher eine Toleranz von 36 Stunden, solange der Tag nicht abweicht.
+        val maxFutureToleranceMs = 36 * 60 * 60 * 1000L
+        if (anchorCal.timeInMillis > now + maxFutureToleranceMs && last.day != currentDay) {
             curMonth -= 1
             if (curMonth == 0) {
                 curMonth = 12
@@ -2672,8 +2676,8 @@ class MicrolifeBleManager(private val context: Context) {
                 set(Calendar.MILLISECOND, 0)
             }
 
-            // Sicherheitsprüfung: Ein Messwert kann nie in der Zukunft liegen
-            if (measCal.timeInMillis > now + 15 * 60 * 1000L) {
+            // Sicherheitsprüfung: Ein Messwert kann nie weit in der Zukunft liegen
+            if (measCal.timeInMillis > now + maxFutureToleranceMs && r.day != currentDay) {
                 curMonth -= 1
                 if (curMonth == 0) {
                     curMonth = 12

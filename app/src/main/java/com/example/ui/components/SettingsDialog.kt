@@ -117,6 +117,7 @@ fun SettingsDialog(
     onRestoreDatabaseFromUri: (Uri) -> Unit = {},
     onSelectBackupFolder: (Uri, String) -> Unit = { _, _ -> },
     onClearAllData: () -> Unit,
+    onFixSeptemberToOctober: (() -> Unit)? = null,
     onOpenDiagnose: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
@@ -1523,6 +1524,23 @@ fun SettingsDialog(
                                     .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
                             ) {
                                 HorizontalDivider(color = CleanOutline.copy(alpha = 0.5f), modifier = Modifier.padding(bottom = 10.dp))
+
+                                if (onFixSeptemberToOctober != null) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onFixSeptemberToOctober()
+                                        },
+                                        border = BorderStroke(1.dp, CleanPrimary),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("btn_fix_september_to_october")
+                                    ) {
+                                        Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, tint = CleanPrimary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("September-Messwerte nach Oktober korrigieren", fontWeight = FontWeight.Bold, color = CleanPrimary, fontSize = 12.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                }
 
                                 Button(
                                     onClick = {
