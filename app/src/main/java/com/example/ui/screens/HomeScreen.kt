@@ -156,7 +156,7 @@ fun HomeScreen(
     var showPrintMonthDialog by remember { mutableStateOf(false) }
     var selectedPrintMonthKey by remember { mutableStateOf("") }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    var expandedMonthKeys by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var expandedMonthKeys by rememberSaveable(settings.selectedUserIndex) { mutableStateOf(setOf<String>()) }
 
     var isExitBackupInProgress by remember { mutableStateOf(false) }
     var exitBackupStatusText by remember { mutableStateOf("") }
@@ -236,14 +236,6 @@ fun HomeScreen(
                 measurements = triple.third,
                 isCurrentMonth = (triple.first == curYear && triple.second == curMonth)
             )
-        }
-    }
-
-    // Automatisch alle Monats-Aufklappmenüs mit Messwerten erweitern, damit keine importierten Daten verdeckt bleiben
-    androidx.compose.runtime.LaunchedEffect(measurements) {
-        val keysWithData = groupedMonths.filter { !it.isCurrentMonth && it.measurements.isNotEmpty() }.map { it.key }.toSet()
-        if (keysWithData.isNotEmpty()) {
-            expandedMonthKeys = expandedMonthKeys + keysWithData
         }
     }
 

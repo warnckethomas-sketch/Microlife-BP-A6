@@ -40,7 +40,11 @@ object PdfExporter {
     // Dimensions for A4 in Points (72 DPI) - Hochformat (Portrait)
     private const val PAGE_WIDTH = 595
     private const val PAGE_HEIGHT = 842
-    private const val MARGIN = 30f
+
+    // Seitenränder: Linker Rand vergrößert auf 58pt (~20.5 mm) als Abheft-/Lochrand für Standard-A4-Lochung
+    private const val MARGIN_TOP = 30f
+    private const val MARGIN_LEFT = 58f  // 58 pt ≈ 20.5 mm (Standard-Lochrand: 12 mm bis Lochmitte + 3.25 mm Lochradius + 5.25 mm Puffer)
+    private const val MARGIN_RIGHT = 22f
 
     private const val PAGE1_MAX_DAY_ROWS = 31
     private const val PAGE_LATER_MAX_DAY_ROWS = 40
@@ -272,33 +276,33 @@ object PdfExporter {
         val height = PAGE_HEIGHT.toFloat()
         val nowStr = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date())
 
-        var currentY = MARGIN
+        var currentY = MARGIN_TOP
 
         // 1. Header Banner
         paint.color = Color.rgb(13, 71, 161) // Deep Primary Blue
-        canvas.drawRoundRect(RectF(MARGIN, currentY, width - MARGIN, currentY + 34f), 5f, 5f, paint)
+        canvas.drawRoundRect(RectF(MARGIN_LEFT, currentY, width - MARGIN_RIGHT, currentY + 34f), 5f, 5f, paint)
 
         paint.color = Color.WHITE
         paint.textSize = 12f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("BLUTDRUCK- & AFIB-PROTOKOLL  •  $monthTitle", MARGIN + 12f, currentY + 22f, paint)
+        canvas.drawText("BLUTDRUCK- & AFIB-PROTOKOLL  •  $monthTitle", MARGIN_LEFT + 12f, currentY + 22f, paint)
 
         paint.textSize = 8f
         paint.typeface = Typeface.DEFAULT
-        canvas.drawText("Erstellt: $nowStr", width - MARGIN - 110f, currentY + 22f, paint)
+        canvas.drawText("Erstellt: $nowStr", width - MARGIN_RIGHT - 110f, currentY + 22f, paint)
 
         currentY += 38f
 
         // 2. Patient & Statistics Summary Bar
         paint.color = Color.rgb(224, 236, 252) // Stronger soft blue background
-        canvas.drawRoundRect(RectF(MARGIN, currentY, width - MARGIN, currentY + 30f), 4f, 4f, paint)
+        canvas.drawRoundRect(RectF(MARGIN_LEFT, currentY, width - MARGIN_RIGHT, currentY + 30f), 4f, 4f, paint)
         val statsBorderPaint = Paint().apply {
             color = Color.rgb(186, 212, 248)
             style = Paint.Style.STROKE
             strokeWidth = 0.8f
             isAntiAlias = true
         }
-        canvas.drawRoundRect(RectF(MARGIN, currentY, width - MARGIN, currentY + 30f), 4f, 4f, statsBorderPaint)
+        canvas.drawRoundRect(RectF(MARGIN_LEFT, currentY, width - MARGIN_RIGHT, currentY + 30f), 4f, 4f, statsBorderPaint)
 
         paint.color = Color.rgb(15, 23, 42)
         paint.textSize = 9f
@@ -311,12 +315,12 @@ object PdfExporter {
         } else {
             "Patient: $displayName"
         }
-        canvas.drawText(patientText, MARGIN + 10f, currentY + 14f, paint)
+        canvas.drawText(patientText, MARGIN_LEFT + 10f, currentY + 14f, paint)
 
         paint.textSize = 7.5f
         paint.typeface = Typeface.DEFAULT
         paint.color = Color.rgb(71, 85, 105)
-        canvas.drawText("Monat: $monthTitle | Zielwert: < ${settings.systoleNormMax} / ${settings.diastoleNormMax} mmHg", MARGIN + 10f, currentY + 25f, paint)
+        canvas.drawText("Monat: $monthTitle | Zielwert: < ${settings.systoleNormMax} / ${settings.diastoleNormMax} mmHg", MARGIN_LEFT + 10f, currentY + 25f, paint)
 
         // Statistics computation over all measurements of the month
         if (allMonthMeasurements.isNotEmpty()) {
@@ -331,7 +335,7 @@ object PdfExporter {
             paint.textSize = 8f
             val statsText = "Ø $avgSys / $avgDia mmHg  |  Ø $avgPulse bpm  |  N = $count  |  AFIB: $afibCount"
             val textWidth = paint.measureText(statsText)
-            canvas.drawText(statsText, width - MARGIN - textWidth - 10f, currentY + 19f, paint)
+            canvas.drawText(statsText, width - MARGIN_RIGHT - textWidth - 10f, currentY + 19f, paint)
         }
 
         currentY += 34f
@@ -340,8 +344,8 @@ object PdfExporter {
         val chartTop = currentY
         val chartHeight = 125f
         val chartBottom = chartTop + chartHeight
-        val chartLeft = MARGIN + 36f // room for Y axis labels
-        val chartRight = width - MARGIN - 8f
+        val chartLeft = MARGIN_LEFT + 32f // room for Y axis labels and norm indicator badges
+        val chartRight = width - MARGIN_RIGHT - 6f
         val chartWidth = chartRight - chartLeft
 
         // Background area for chart - Stronger distinct chart background with border
@@ -560,35 +564,35 @@ object PdfExporter {
         currentY = chartBottom + 13f
 
         paint.color = Color.rgb(25, 118, 210)
-        canvas.drawCircle(MARGIN + 30f, currentY + 3f, 3f, paint)
+        canvas.drawCircle(MARGIN_LEFT + 25f, currentY + 3f, 3f, paint)
         paint.color = Color.rgb(30, 41, 59)
         paint.textSize = 7f
         paint.typeface = Typeface.DEFAULT_BOLD
-        canvas.drawText("Systole (mmHg)", MARGIN + 37f, currentY + 5f, paint)
+        canvas.drawText("Systole (mmHg)", MARGIN_LEFT + 32f, currentY + 5f, paint)
 
         paint.color = Color.rgb(46, 125, 50)
-        canvas.drawCircle(MARGIN + 125f, currentY + 3f, 3f, paint)
+        canvas.drawCircle(MARGIN_LEFT + 120f, currentY + 3f, 3f, paint)
         paint.color = Color.rgb(30, 41, 59)
-        canvas.drawText("Diastole (mmHg)", MARGIN + 132f, currentY + 5f, paint)
+        canvas.drawText("Diastole (mmHg)", MARGIN_LEFT + 127f, currentY + 5f, paint)
 
         paint.color = Color.rgb(211, 47, 47)
-        canvas.drawCircle(MARGIN + 220f, currentY + 3f, 3f, paint)
+        canvas.drawCircle(MARGIN_LEFT + 215f, currentY + 3f, 3f, paint)
         paint.color = Color.rgb(30, 41, 59)
-        canvas.drawText("Erhöht / AFIB", MARGIN + 227f, currentY + 5f, paint)
+        canvas.drawText("Erhöht / AFIB", MARGIN_LEFT + 222f, currentY + 5f, paint)
 
         paint.color = Color.rgb(46, 125, 50)
-        canvas.drawLine(MARGIN + 305f, currentY + 3f, MARGIN + 325f, currentY + 3f, dashPaint)
+        canvas.drawLine(MARGIN_LEFT + 300f, currentY + 3f, MARGIN_LEFT + 320f, currentY + 3f, dashPaint)
         paint.color = Color.rgb(30, 41, 59)
-        canvas.drawText("Normbereich", MARGIN + 330f, currentY + 5f, paint)
+        canvas.drawText("Normbereich", MARGIN_LEFT + 325f, currentY + 5f, paint)
 
         currentY += 13f
 
         // 4. Compact Daily Table (1 Zeile pro Tag)
         drawDailyMeasurementsTable(
             canvas = canvas,
-            startX = MARGIN,
+            startX = MARGIN_LEFT,
             startY = currentY,
-            tableWidth = width - 2 * MARGIN,
+            tableWidth = width - MARGIN_LEFT - MARGIN_RIGHT,
             days = dayRowsForPage,
             settings = settings
         )
@@ -613,33 +617,33 @@ object PdfExporter {
         val height = PAGE_HEIGHT.toFloat()
         val nowStr = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.GERMANY).format(Date())
 
-        var currentY = MARGIN
+        var currentY = MARGIN_TOP
 
         // 1. Continuation Header
         paint.color = Color.rgb(13, 71, 161) // Deep Primary Blue
-        canvas.drawRoundRect(RectF(MARGIN, currentY, width - MARGIN, currentY + 30f), 4f, 4f, paint)
+        canvas.drawRoundRect(RectF(MARGIN_LEFT, currentY, width - MARGIN_RIGHT, currentY + 30f), 4f, 4f, paint)
 
         paint.color = Color.WHITE
         paint.textSize = 11f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText("BLUTDRUCK-PROTOKOLL  •  $monthTitle (Fortsetzung)", MARGIN + 12f, currentY + 19f, paint)
+        canvas.drawText("BLUTDRUCK-PROTOKOLL  •  $monthTitle (Fortsetzung)", MARGIN_LEFT + 12f, currentY + 19f, paint)
 
         paint.textSize = 7.5f
         paint.typeface = Typeface.DEFAULT
-        canvas.drawText("Erstellt: $nowStr", width - MARGIN - 100f, currentY + 19f, paint)
+        canvas.drawText("Erstellt: $nowStr", width - MARGIN_RIGHT - 100f, currentY + 19f, paint)
 
         currentY += 34f
 
         // 2. Patient Short Bar
         paint.color = Color.rgb(224, 236, 252)
-        canvas.drawRoundRect(RectF(MARGIN, currentY, width - MARGIN, currentY + 22f), 4f, 4f, paint)
+        canvas.drawRoundRect(RectF(MARGIN_LEFT, currentY, width - MARGIN_RIGHT, currentY + 22f), 4f, 4f, paint)
         val shortBarBorder = Paint().apply {
             color = Color.rgb(186, 212, 248)
             style = Paint.Style.STROKE
             strokeWidth = 0.8f
             isAntiAlias = true
         }
-        canvas.drawRoundRect(RectF(MARGIN, currentY, width - MARGIN, currentY + 22f), 4f, 4f, shortBarBorder)
+        canvas.drawRoundRect(RectF(MARGIN_LEFT, currentY, width - MARGIN_RIGHT, currentY + 22f), 4f, 4f, shortBarBorder)
 
         paint.color = Color.rgb(15, 23, 42)
         paint.textSize = 8f
@@ -652,22 +656,22 @@ object PdfExporter {
         } else {
             "Patient: $displayName"
         }
-        canvas.drawText(patientText, MARGIN + 8f, currentY + 15f, paint)
+        canvas.drawText(patientText, MARGIN_LEFT + 8f, currentY + 15f, paint)
 
         paint.typeface = Typeface.DEFAULT
         paint.color = Color.rgb(71, 85, 105)
         val limitText = "Zielwert: < ${settings.systoleNormMax} / ${settings.diastoleNormMax} mmHg"
         val limitWidth = paint.measureText(limitText)
-        canvas.drawText(limitText, width - MARGIN - limitWidth - 8f, currentY + 15f, paint)
+        canvas.drawText(limitText, width - MARGIN_RIGHT - limitWidth - 8f, currentY + 15f, paint)
 
         currentY += 28f
 
         // 3. Table continuation
         drawDailyMeasurementsTable(
             canvas = canvas,
-            startX = MARGIN,
+            startX = MARGIN_LEFT,
             startY = currentY,
-            tableWidth = width - 2 * MARGIN,
+            tableWidth = width - MARGIN_LEFT - MARGIN_RIGHT,
             days = dayRowsForPage,
             settings = settings
         )
@@ -697,10 +701,10 @@ object PdfExporter {
         val headerHeight = 22f
         val rowHeight = 14.5f
 
-        // Column layout: Datum (75pt), then 4 slots of equal width (115pt each)
+        // Column layout: Datum (71pt), then 4 slots of equal width (111pt each with tableWidth=515pt)
         val colDate = startX
-        val colDateWidth = 75f
-        val slotWidth = (tableWidth - colDateWidth) / 4f // ~115pt each
+        val colDateWidth = 71f
+        val slotWidth = (tableWidth - colDateWidth) / 4f // ~111pt each
 
         val col1 = colDate + colDateWidth
         val col2 = col1 + slotWidth
@@ -900,7 +904,7 @@ object PdfExporter {
         val textBefore = "Werte mit "
         val textAfter = "Unruhe ( z.B. nach Körperpflege , Spaziergang , Hauswirtschaft )"
 
-        var fnX = MARGIN
+        var fnX = MARGIN_LEFT
         canvas.drawText(textBefore, fnX, fnY, paint)
         fnX += paint.measureText(textBefore)
 
@@ -920,11 +924,11 @@ object PdfExporter {
         paint.textSize = 7.5f
         paint.typeface = Typeface.DEFAULT
         paint.textAlign = Paint.Align.LEFT
-        canvas.drawText("Seite $currentPage von $totalPages • Microlife BP A6 BT", MARGIN, footerY, paint)
+        canvas.drawText("Seite $currentPage von $totalPages • Microlife BP A6 BT", MARGIN_LEFT, footerY, paint)
 
         val noteText = "Tagesweise Schattierung • Werte über Grenzwert oder AFIB farblich hervorgehoben"
         val noteWidth = paint.measureText(noteText)
-        canvas.drawText(noteText, width - MARGIN - noteWidth, footerY, paint)
+        canvas.drawText(noteText, width - MARGIN_RIGHT - noteWidth, footerY, paint)
     }
 
     /**

@@ -12,7 +12,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.database.BpDatabase
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [36])
 class TimestampFixTest {
 
     @Test
