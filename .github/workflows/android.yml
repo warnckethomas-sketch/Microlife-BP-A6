@@ -37,27 +37,32 @@ jobs:
             git clone --depth=1 --branch="${{ github.ref_name }}" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" .
           fi
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         run: |
-          echo "Configuring JDK 17"
-          if [ -d "$JAVA_HOME_17_X64" ]; then
-            echo "JAVA_HOME=$JAVA_HOME_17_X64" >> $GITHUB_ENV
-            echo "PATH=$JAVA_HOME_17_X64/bin:$PATH" >> $GITHUB_ENV
+          echo "Configuring JDK 21"
+          if [ -d "$JAVA_HOME_21_X64" ]; then
+            echo "JAVA_HOME=$JAVA_HOME_21_X64" >> $GITHUB_ENV
+            echo "PATH=$JAVA_HOME_21_X64/bin:$PATH" >> $GITHUB_ENV
+            export JAVA_HOME="$JAVA_HOME_21_X64"
+            export PATH="$JAVA_HOME_21_X64/bin:$PATH"
           else
             # Try fallback paths on the runner
             found=false
-            for jvm in /usr/lib/jvm/*17* /usr/lib/jvm/*jdk-17*; do
+            for jvm in /usr/lib/jvm/*21* /usr/lib/jvm/*jdk-21* /usr/lib/jvm/*17* /usr/lib/jvm/*jdk-17*; do
               if [ -d "$jvm" ]; then
                 echo "JAVA_HOME=$jvm" >> $GITHUB_ENV
                 echo "PATH=$jvm/bin:$PATH" >> $GITHUB_ENV
+                export JAVA_HOME="$jvm"
+                export PATH="$jvm/bin:$PATH"
                 found=true
                 break
               fi
             done
             if [ "$found" = "false" ]; then
-              echo "Warning: JDK 17 directory not found, relying on runner default java environment"
+              echo "Warning: JDK 21 directory not found, relying on runner default java environment"
             fi
           fi
+          java -version
 
       - name: Setup Gradle 9.3.1
         run: |
